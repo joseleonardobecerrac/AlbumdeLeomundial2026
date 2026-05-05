@@ -1,0 +1,25 @@
+{
+  "name": "Álbum Mundial 2026 — FIFA",
+  "short_name": "Album 26",
+  "description": "Álbum digital oficial del FIFA World Cup™ 2026. Colecciona 48 selecciones, abre sobres, completa misiones y compite en el ranking global.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#070A10",
+  "theme_color": "#E31E24",
+  "orientation": "portrait-primary",
+  "lang": "es",
+  "categories": ["games", "sports", "entertainment"],
+  "shortcuts": [
+    { "name": "Abrir Sobre",    "url": "/?shortcut=pack",     "icons": [{"src":"icon-96.png","sizes":"96x96"}] },
+    { "name": "Mi Selección",   "url": "/?shortcut=favorite", "icons": [{"src":"icon-96.png","sizes":"96x96"}] },
+    { "name": "Ranking Global", "url": "/?shortcut=ranking",  "icons": [{"src":"icon-96.png","sizes":"96x96"}] },
+    { "name": "Trivia",         "url": "/?shortcut=trivia",   "icons": [{"src":"icon-96.png","sizes":"96x96"}] }
+  ],
+  "icons": [
+    { "src": "icon-96.png",  "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
