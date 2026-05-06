@@ -2,24 +2,52 @@
 const state = {
   userId: null,
   userMode: 'firebase',
+  isAdmin: false,
+
   collected: new Set(),
   duplicates: {},       // { playerId: count }
   stadiumsCollected: new Set(),
+
   gameScore: 0,
   gameStreak: 0,
   gameBest: 0,
+
   bracket: {
     r32: Array.from({length:16},(_,i)=>({id:`R32-${i+1}`,home:null,away:null,hs:null,as:null,winner:null})),
     qf:  Array.from({length:8}, (_,i)=>({id:`QF-${i+1}`, home:null,away:null,hs:null,as:null,winner:null})),
     sf:  Array.from({length:2}, (_,i)=>({id:`SF-${i+1}`, home:null,away:null,hs:null,as:null,winner:null})),
     f:   [{id:"FIN",home:null,away:null,hs:null,as:null,winner:null}],
   },
+
   standings: {},        // { groupCode: { countryCode: {pj,pg,pe,pp,gf,gc} } }
   currentMatch: null,
   currentView: 'home',
-  favTeam: null,       // country code of favorite team
-  favMissions: {},     // { missionId: { completed, claimedAt } }
+
+  favTeam: null,        // country code of favorite team
+  favMissions: {},      // { missionId: { completed, claimedAt } }
 };
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN CONFIG
+// ═══════════════════════════════════════════════════════════
+const ADMIN_EMAIL = 'joseleonardobecerrac@gmail.com';
+window.ADMIN_EMAIL = ADMIN_EMAIL;
+
+function isAdminUser(user) {
+  return (user?.email || '').toLowerCase() === ADMIN_EMAIL;
+}
+
+function fillAdminAlbum() {
+  const allPlayerIds = COUNTRIES.flatMap(c => c.players.map(p => p.id));
+  const allStadiumIds = (typeof STADIUMS !== 'undefined' ? STADIUMS : []).map(s => s.id);
+
+  state.collected = new Set(allPlayerIds);
+  state.stadiumsCollected = new Set(allStadiumIds);
+  state.duplicates = {};
+  state.gameScore = 999999;
+  state.gameBest = 999999;
+  state.gameStreak = 999;
+}
 
 // ═══════════════════════════════════════════════════════════
 // FLAG HELPER
@@ -28,6 +56,7 @@ function flagImg(code, cls='') {
   if(!code) return '<span>🏳️</span>';
   return `<img src="https://flagcdn.com/${code}.svg" alt="${code}" class="${cls||'std-flag'}" loading="lazy" onerror="this.style.display='none'">`;
 }
+
 function flagImgSized(code, w=24, h=17) {
   if(!code) return '';
   return `<img src="https://flagcdn.com/${code}.svg" style="width:${w}px;height:${h}px;object-fit:cover;border-radius:3px;" loading="lazy">`;
@@ -37,23 +66,45 @@ function flagImgSized(code, w=24, h=17) {
 // FIREBASE / AUTH
 // ═══════════════════════════════════════════════════════════
 let _fb;
-function fb(){ return window._firebase; }
+
+function fb(){
+  return window._firebase;
+}
 
 function setSyncStatus(s) {
   const dot = document.getElementById('sync-dot');
   const lbl = document.getElementById('sync-label');
-  if(!dot) return;
+
+  if(!dot || !lbl) return;
+
   dot.className = s;
-  if(s==='syncing'){lbl.textContent='Sincronizando…';}
-  else if(s==='error'){lbl.textContent='Sin conexión';}
-  else{lbl.textContent='Sincronizado';}
+
+  if(s === 'syncing') {
+    lbl.textContent = 'Sincronizando…';
+  } else if(s === 'error') {
+    lbl.textContent = 'Sin conexión';
+  } else {
+    lbl.textContent = 'Sincronizado';
+  }
 }
 
 async function saveToFirestore() {
-  if(state.userMode !== 'firebase' || !state.userId) { saveLocalFallback(); return; }
+  // El admin no guarda progreso real ni modifica su álbum en Firestore
+  if(state.isAdmin) {
+    setSyncStatus('');
+    return;
+  }
+
+  if(state.userMode !== 'firebase' || !state.userId) {
+    saveLocalFallback();
+    return;
+  }
+
   setSyncStatus('syncing');
+
   try {
     const { db, doc, setDoc } = fb();
+
     const data = {
       collected: [...state.collected],
       duplicates: state.duplicates,
@@ -67,16 +118,20 @@ async function saveToFirestore() {
       favTeam: state.favTeam,
       favMissions: state.favMissions,
     };
-    await setDoc(doc(db,'albums',state.userId), data);
+
+    await setDoc(doc(db, 'albums', state.userId), data);
     setSyncStatus('');
   } catch(e) {
-    console.error(e);
+    console.error('[Firestore] Save error:', e);
     setSyncStatus('error');
     saveLocalFallback();
   }
 }
 
 function saveLocalFallback() {
+  // El admin tampoco guarda respaldo local para no contaminar el navegador
+  if(state.isAdmin) return;
+
   try {
     localStorage.setItem('album26_v2', JSON.stringify({
       collected: [...state.collected],
@@ -85,128 +140,307 @@ function saveLocalFallback() {
       bracket: state.bracket,
       standings: state.standings,
       gameScore: state.gameScore,
+      gameStreak: state.gameStreak,
       gameBest: state.gameBest,
       favTeam: state.favTeam,
       favMissions: state.favMissions,
     }));
-  } catch(e){}
+  } catch(e) {
+    console.warn('[LocalStorage] Save fallback failed:', e);
+  }
 }
 
 async function loadFromFirestore(uid) {
   setSyncStatus('syncing');
+
   try {
     const { db, doc, getDoc } = fb();
     const snap = await getDoc(doc(db, 'albums', uid));
+
     if(snap.exists()) {
-      // Existing user — load their data
       const d = snap.data();
+
       state.collected         = new Set(d.collected || []);
       state.duplicates        = d.duplicates || {};
       state.stadiumsCollected = new Set(d.stadiumsCollected || []);
-      if(d.bracket)    state.bracket    = d.bracket;
-      if(d.standings)  state.standings  = d.standings;
-      if(d.gameScore)  state.gameScore  = d.gameScore;
-      if(d.gameBest)   state.gameBest   = d.gameBest;
-      if(d.favTeam)    state.favTeam    = d.favTeam;
-      if(d.favMissions)state.favMissions= d.favMissions;
+
+      if(d.bracket)     state.bracket     = d.bracket;
+      if(d.standings)   state.standings   = d.standings;
+      if(d.gameScore)   state.gameScore   = d.gameScore;
+      if(d.gameStreak)  state.gameStreak  = d.gameStreak;
+      if(d.gameBest)    state.gameBest    = d.gameBest;
+      if(d.favTeam)     state.favTeam     = d.favTeam;
+      if(d.favMissions) state.favMissions = d.favMissions;
+
       console.log('[Auth] Loaded existing album for', uid, '—', state.collected.size, 'stickers');
     } else {
-      // New user — fresh album, starts from 0 (state already reset)
       console.log('[Auth] New user', uid, '— starting fresh album');
     }
+
     setSyncStatus('');
   } catch(e) {
     console.error('[Auth] Firestore load error:', e);
     setSyncStatus('error');
-    // Don't load localStorage — keep state clean per user
   }
 }
 
 function loadLocalFallback() {
+  if(state.isAdmin) return;
+
   try {
     const saved = localStorage.getItem('album26_v2');
+
     if(saved) {
       const d = JSON.parse(saved);
+
       state.collected = new Set(d.collected || []);
       state.duplicates = d.duplicates || {};
       state.stadiumsCollected = new Set(d.stadiumsCollected || []);
+
       if(d.bracket) state.bracket = d.bracket;
       if(d.standings) state.standings = d.standings;
       if(d.gameScore) state.gameScore = d.gameScore;
+      if(d.gameStreak) state.gameStreak = d.gameStreak;
       if(d.gameBest) state.gameBest = d.gameBest;
       if(d.favTeam) state.favTeam = d.favTeam;
       if(d.favMissions) state.favMissions = d.favMissions;
     }
-  } catch(e){}
+  } catch(e) {
+    console.warn('[LocalStorage] Load fallback failed:', e);
+  }
 }
 
-let _lastUserId = null;  // track user switches
+let _lastUserId = null;
 
+// ═══════════════════════════════════════════════════════════
+// AUTH SETUP
+// ═══════════════════════════════════════════════════════════
 function setupAuth() {
   const { auth, onAuthStateChanged } = fb();
 
   onAuthStateChanged(auth, async (user) => {
     if(user) {
-      // If switching accounts, FULLY reset state first
+      // Si cambia de cuenta, limpiamos todo primero
       if(_lastUserId && _lastUserId !== user.uid) {
         resetStateCompletely();
       }
+
       _lastUserId = user.uid;
 
       state.userId   = user.uid;
       state.userMode = 'firebase';
+      state.isAdmin  = isAdminUser(user);
+
       updateUserUI(user);
+
+      if(state.isAdmin) {
+        fillAdminAlbum();
+        showApp();
+        toast('Modo administrador activado · Álbum completo al 100%', 'success');
+        return;
+      }
+
       await loadFromFirestore(user.uid);
       showApp();
     } else {
-      // Signed out — reset and show auth screen
       _lastUserId = null;
       resetStateCompletely();
-      document.getElementById('app').classList.add('hidden');
-      document.getElementById('auth-screen').style.display = 'flex';
+
+      const appEl = document.getElementById('app');
+      const authEl = document.getElementById('auth-screen');
+
+      if(appEl) appEl.classList.add('hidden');
+      if(authEl) authEl.style.display = 'flex';
     }
   });
 
-  const googleBtn = document.getElementById('btn-google');
-  if(googleBtn) {
-    googleBtn.onclick = async () => {
-      googleBtn.disabled = true;
-      googleBtn.textContent = 'Conectando…';
-      try {
-        const { auth, signInWithPopup, provider } = fb();
-        await signInWithPopup(auth, provider);
-      } catch(e) {
-        const msg = e.code === 'auth/popup-blocked'
-          ? 'El navegador bloqueó el popup. Permite popups para este sitio.'
-          : e.code === 'auth/unauthorized-domain'
-          ? 'Dominio no autorizado. Agrégalo en Firebase → Authentication → Authorized domains.'
-          : 'Error al iniciar sesión: ' + (e.message || e.code);
-        toast(msg, 'error');
-        console.error('[Auth]', e.code, e.message);
-        googleBtn.disabled = false;
-        googleBtn.innerHTML = \`<svg viewBox="0 0 24 24" fill="none" style="width:20px;height:20px;"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Continuar con Google\`;
-      }
-    };
-  }
+  setupGoogleLoginButton();
 }
+
+function setupGoogleLoginButton() {
+  const googleBtn = document.getElementById('btn-google');
+  if(!googleBtn) return;
+
+  const originalHTML = googleBtn.innerHTML;
+
+  googleBtn.onclick = async () => {
+    googleBtn.disabled = true;
+    googleBtn.textContent = 'Conectando…';
+
+    try {
+      const { auth, signInWithPopup, provider } = fb();
+      await signInWithPopup(auth, provider);
+    } catch(e) {
+      const msg = e.code === 'auth/popup-blocked'
+        ? 'El navegador bloqueó el popup. Permite popups para este sitio.'
+        : e.code === 'auth/unauthorized-domain'
+        ? 'Dominio no autorizado. Agrégalo en Firebase → Authentication → Authorized domains.'
+        : e.code === 'auth/popup-closed-by-user'
+        ? 'Cerraste la ventana antes de iniciar sesión.'
+        : 'Error al iniciar sesión: ' + (e.message || e.code);
+
+      toast(msg, 'error');
+      console.error('[Google Auth]', e.code, e.message);
+
+      googleBtn.disabled = false;
+      googleBtn.innerHTML = originalHTML;
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// EMAIL / PASSWORD AUTH
+// ═══════════════════════════════════════════════════════════
+function getAuthFormValues() {
+  return {
+    name: document.getElementById('auth-name')?.value.trim() || '',
+    email: document.getElementById('auth-email')?.value.trim().toLowerCase() || '',
+    password: document.getElementById('auth-password')?.value || ''
+  };
+}
+
+window.handleEmailLogin = async function() {
+  const { email, password } = getAuthFormValues();
+
+  if(!email || !password) {
+    toast('Escribe tu correo y contraseña', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-email-login');
+  const oldText = btn?.textContent;
+
+  try {
+    if(btn) {
+      btn.disabled = true;
+      btn.textContent = 'Entrando…';
+    }
+
+    const { auth, signInWithEmailAndPassword } = fb();
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch(e) {
+    console.error('[Email Login]', e);
+
+    const msg =
+      e.code === 'auth/invalid-credential' ? 'Correo o contraseña incorrectos.' :
+      e.code === 'auth/user-not-found' ? 'No existe una cuenta con ese correo.' :
+      e.code === 'auth/wrong-password' ? 'Contraseña incorrecta.' :
+      e.code === 'auth/invalid-email' ? 'Correo electrónico inválido.' :
+      'No se pudo iniciar sesión.';
+
+    toast(msg, 'error');
+
+    if(btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Entrar';
+    }
+  }
+};
+
+window.handleEmailRegister = async function() {
+  const { name, email, password } = getAuthFormValues();
+
+  if(!name || !email || !password) {
+    toast('Completa nombre, correo y contraseña', 'error');
+    return;
+  }
+
+  if(password.length < 6) {
+    toast('La contraseña debe tener mínimo 6 caracteres', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-email-register');
+  const oldText = btn?.textContent;
+
+  try {
+    if(btn) {
+      btn.disabled = true;
+      btn.textContent = 'Creando…';
+    }
+
+    const {
+      auth,
+      createUserWithEmailAndPassword,
+      updateProfile
+    } = fb();
+
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+
+    await updateProfile(cred.user, {
+      displayName: name
+    });
+
+    updateUserUI(cred.user);
+    toast('Cuenta creada correctamente', 'success');
+  } catch(e) {
+    console.error('[Email Register]', e);
+
+    const msg =
+      e.code === 'auth/email-already-in-use' ? 'Ese correo ya está registrado.' :
+      e.code === 'auth/invalid-email' ? 'Correo electrónico inválido.' :
+      e.code === 'auth/weak-password' ? 'La contraseña es muy débil.' :
+      'No se pudo crear la cuenta.';
+
+    toast(msg, 'error');
+
+    if(btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Crear cuenta';
+    }
+  }
+};
+
+window.handlePasswordReset = async function() {
+  const { email } = getAuthFormValues();
+
+  if(!email) {
+    toast('Escribe tu correo para recuperar la contraseña', 'error');
+    return;
+  }
+
+  try {
+    const { auth, sendPasswordResetEmail } = fb();
+    await sendPasswordResetEmail(auth, email);
+
+    toast('Te enviamos un correo para restablecer la contraseña', 'success');
+  } catch(e) {
+    console.error('[Password Reset]', e);
+
+    const msg =
+      e.code === 'auth/invalid-email' ? 'Correo electrónico inválido.' :
+      e.code === 'auth/user-not-found' ? 'No existe una cuenta con ese correo.' :
+      'No se pudo enviar el correo de recuperación.';
+
+    toast(msg, 'error');
+  }
+};
 
 // Full state reset — called on logout or account switch
 function resetStateCompletely() {
   state.userId            = null;
   state.userMode          = 'firebase';
+  state.isAdmin           = false;
+
   state.collected         = new Set();
   state.duplicates        = {};
   state.stadiumsCollected = new Set();
+
   state.gameScore         = 0;
   state.gameStreak        = 0;
   state.gameBest          = 0;
+
   state.standings         = {};
+  state.currentMatch      = null;
+  state.currentView       = 'home';
+
   state.favTeam           = null;
   state.favMissions       = {};
+
   state.bracket = {
-    r32: Array.from({length:16},(_,i)=>({id:\`R32-\${i+1}\`,home:null,away:null,hs:null,as:null,winner:null})),
-    qf:  Array.from({length:8}, (_,i)=>({id:\`QF-\${i+1}\`, home:null,away:null,hs:null,as:null,winner:null})),
-    sf:  Array.from({length:2}, (_,i)=>({id:\`SF-\${i+1}\`, home:null,away:null,hs:null,as:null,winner:null})),
+    r32: Array.from({length:16},(_,i)=>({id:`R32-${i+1}`,home:null,away:null,hs:null,as:null,winner:null})),
+    qf:  Array.from({length:8}, (_,i)=>({id:`QF-${i+1}`, home:null,away:null,hs:null,as:null,winner:null})),
+    sf:  Array.from({length:2}, (_,i)=>({id:`SF-${i+1}`, home:null,away:null,hs:null,as:null,winner:null})),
     f:   [{id:'FIN',home:null,away:null,hs:null,as:null,winner:null}],
   };
 }
@@ -215,13 +449,17 @@ function updateUserUI(user) {
   const av = document.getElementById('sb-avatar-el');
   const nm = document.getElementById('sb-name-el');
   const em = document.getElementById('sb-email-el');
+
+  if(!av || !nm || !em) return;
+
   if(user) {
     nm.textContent = user.displayName || 'Usuario';
     em.textContent = user.email || '';
+
     if(user.photoURL) {
       av.innerHTML = `<img src="${user.photoURL}" alt="">`;
     } else {
-      av.textContent = (user.displayName||'U')[0].toUpperCase();
+      av.textContent = (user.displayName || user.email || 'U')[0].toUpperCase();
     }
   } else {
     nm.textContent = 'Usuario';
@@ -231,25 +469,34 @@ function updateUserUI(user) {
 }
 
 async function handleLogout() {
-  // Save before logout
-  if(state.userId) await saveToFirestore();
+  // Guardamos antes de salir solo si NO es admin
+  if(state.userId && !state.isAdmin) {
+    await saveToFirestore();
+  }
 
-  // Sign out from Firebase — onAuthStateChanged will handle the rest
   try {
     const { auth, signOut } = fb();
     await signOut(auth);
   } catch(e) {
     console.error('[Auth] Logout error:', e);
-    // Force reset anyway
+
     resetStateCompletely();
-    document.getElementById('app').classList.add('hidden');
-    document.getElementById('auth-screen').style.display = 'flex';
+
+    const appEl = document.getElementById('app');
+    const authEl = document.getElementById('auth-screen');
+
+    if(appEl) appEl.classList.add('hidden');
+    if(authEl) authEl.style.display = 'flex';
   }
 }
 
 function showApp() {
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').classList.remove('hidden');
+  const authEl = document.getElementById('auth-screen');
+  const appEl = document.getElementById('app');
+
+  if(authEl) authEl.style.display = 'none';
+  if(appEl) appEl.classList.remove('hidden');
+
   buildSidebar();
   navigate('home');
 }
