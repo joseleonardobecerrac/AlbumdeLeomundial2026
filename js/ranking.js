@@ -1,10 +1,12 @@
 // ═══════════════════════════════════════════════════════════
 // RANKING GLOBAL DE COLECCIONISTAS — Firestore real-time
+// Admin protegido: no publica, no aparece, no participa
 // ═══════════════════════════════════════════════════════════
 
 // CSS injected once
 (function injectRankingCSS() {
   if(document.getElementById('ranking-styles')) return;
+
   const s = document.createElement('style');
   s.id = 'ranking-styles';
   s.textContent = `
@@ -29,8 +31,25 @@
 .rk-hero-stat .n{font-family:var(--fd);font-size:28px;color:var(--gold);}
 .rk-hero-stat .l{font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--muted);margin-top:1px;}
 
+/* Admin notice */
+.rk-admin-notice{
+  display:flex;align-items:center;gap:12px;
+  background:rgba(229,53,171,0.08);
+  border:1px solid rgba(229,53,171,0.28);
+  border-radius:14px;
+  padding:14px 18px;
+  margin-bottom:20px;
+}
+.rk-admin-notice-icon{font-size:24px;flex-shrink:0;}
+.rk-admin-notice-title{
+  font-family:var(--fd);font-size:18px;letter-spacing:1px;color:var(--icon-c);
+}
+.rk-admin-notice-text{
+  font-family:var(--fs);font-size:12px;color:var(--muted);line-height:1.5;
+}
+
 /* Tabs */
-.rk-tabs{display:flex;gap:6px;margin-bottom:20px;}
+.rk-tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;}
 .rk-tab{
   padding:7px 18px;border-radius:7px;font-family:var(--fb);font-size:13px;font-weight:600;
   border:1px solid var(--border2);background:transparent;color:var(--muted);
@@ -51,9 +70,7 @@
 .rk-my-info{flex:1;}
 .rk-my-name{font-family:var(--fd);font-size:22px;letter-spacing:1px;}
 .rk-my-stats{font-size:11px;font-family:var(--fm);color:var(--muted);margin-top:3px;}
-.rk-my-progress{
-  text-align:right;
-}
+.rk-my-progress{text-align:right;}
 .rk-my-pct{font-family:var(--fd);font-size:36px;color:var(--green);letter-spacing:-1px;}
 .rk-my-pct-label{font-size:9px;font-family:var(--fm);color:var(--muted);letter-spacing:1px;}
 
@@ -150,10 +167,21 @@
   padding:1px 5px;border-radius:3px;margin-left:6px;
 }
 
-/* Trend arrows */
-.rk-trend-up{color:var(--green);font-size:11px;}
-.rk-trend-dn{color:var(--red);font-size:11px;}
-.rk-trend-eq{color:var(--muted);font-size:11px;}
+/* Empty */
+.rk-empty{
+  padding:34px 20px;
+  text-align:center;
+  color:var(--muted);
+  font-family:var(--fs);
+}
+.rk-empty-icon{font-size:34px;margin-bottom:8px;}
+.rk-empty-title{
+  font-family:var(--fd);
+  font-size:22px;
+  letter-spacing:1px;
+  color:var(--text);
+  margin-bottom:4px;
+}
 
 /* Loading skeleton */
 .rk-skeleton{
@@ -189,11 +217,27 @@
   cursor:pointer;transition:all .12s;
 }
 .rk-share-btn:hover{border-color:var(--gold);color:var(--gold);}
+.rk-share-btn:disabled{opacity:.45;cursor:not-allowed;}
 
 /* Confetti sparkles for top 3 */
 .rk-sparkle{pointer-events:none;position:absolute;
   animation:sparkFade 2s ease forwards;font-size:12px;}
 @keyframes sparkFade{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-30px)}}
+
+/* Responsive */
+@media(max-width:680px){
+  .rk-hero{padding:24px 20px;}
+  .rk-hero h2{font-size:34px;}
+  .rk-table-head,
+  .rk-row{grid-template-columns:42px 1fr 64px 58px 52px;padding-left:10px;padding-right:10px;}
+  .rk-podium{grid-template-columns:1fr;}
+  .rk-podium-card.p1,
+  .rk-podium-card.p2,
+  .rk-podium-card.p3{order:initial;}
+  .rk-user-name{max-width:110px;}
+  .rk-my-card{align-items:flex-start;flex-direction:column;}
+  .rk-my-progress{text-align:left;}
+}
 `;
   document.head.appendChild(s);
 })();
@@ -202,38 +246,129 @@
 // RANKING STATE
 // ═══════════════════════════════════════════════════════════
 let rankingState = {
-  tab: 'global',      // global | friends | country
-  data: [],           // full leaderboard from Firestore
+  tab: 'global',      // global | country | icons
+  data: [],
   myRank: null,
   loading: true,
-  unsubscribe: null,  // Firestore onSnapshot unsubscribe
+  unsubscribe: null,
   lastUpdated: null,
   totalUsers: 0,
 };
 
-// Compute my score (same formula used to write to Firestore)
+// ═══════════════════════════════════════════════════════════
+// ADMIN + SAFE HELPERS
+// ═══════════════════════════════════════════════════════════
+const RK_ADMIN_EMAIL = (window.ADMIN_EMAIL || 'joseleonardobecerrac@gmail.com').toLowerCase();
+
+function rkCurrentUser() {
+  return window._firebase?.auth?.currentUser || null;
+}
+
+function rkCurrentEmail() {
+  return (rkCurrentUser()?.email || '').toLowerCase();
+}
+
+function rkIsAdminNow() {
+  return Boolean(state?.isAdmin) || rkCurrentEmail() === RK_ADMIN_EMAIL;
+}
+
+function rkIsAdminEntry(u) {
+  const email = (u?.email || '').toLowerCase();
+
+  return Boolean(
+    u?.isAdmin ||
+    email === RK_ADMIN_EMAIL ||
+    (rkIsAdminNow() && u?.uid === state.userId)
+  );
+}
+
+function rkCleanData(docs) {
+  return (docs || [])
+    .filter(u => !rkIsAdminEntry(u))
+    .sort((a,b) => (b.score || 0) - (a.score || 0));
+}
+
+function rkEscape(value) {
+  return String(value ?? '')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#039;");
+}
+
+function rkAttr(value) {
+  return rkEscape(value).replaceAll('`','&#096;');
+}
+
+function rkInitials(name) {
+  return (name || '?')
+    .replace(/[^a-zA-ZÀ-ÿ\u00C0-\u024F ]/g,'')
+    .trim()
+    .split(/\s+/)
+    .map(w => w[0])
+    .join('')
+    .slice(0,2)
+    .toUpperCase() || '?';
+}
+
+// Compute my score
 function computeMyScore() {
-  const totalPlayers = COUNTRIES.reduce((a,c)=>a+c.players.length,0);
+  const totalPlayers = COUNTRIES.reduce((a,c) => a + c.players.length, 0);
   const totalStadiums = (typeof STADIUMS !== 'undefined') ? STADIUMS.length : 16;
   const totalItems = totalPlayers + totalStadiums;
+
   const collected = (state.collected?.size || 0) + (state.stadiumsCollected?.size || 0);
-  const pct = totalItems > 0 ? Math.round((collected/totalItems)*100) : 0;
-  // Score = percentage * 100 + tiebreaker (legendaries * 3 + icons * 10)
-  const icons = COUNTRIES.flatMap(c=>c.players).filter(p=>p.rarity==='icon'&&state.collected?.has(p.id)).length;
-  const legendaries = COUNTRIES.flatMap(c=>c.players).filter(p=>p.rarity==='legendary'&&state.collected?.has(p.id)).length;
+  const pct = totalItems > 0 ? Math.round((collected / totalItems) * 100) : 0;
+
+  const allPlayers = COUNTRIES.flatMap(c => c.players);
+
+  const icons = allPlayers.filter(p =>
+    p.rarity === 'icon' && state.collected?.has(p.id)
+  ).length;
+
+  const legendaries = allPlayers.filter(p =>
+    p.rarity === 'legendary' && state.collected?.has(p.id)
+  ).length;
+
   const tiebreak = icons * 10 + legendaries * 3;
-  return { pct, collected, totalItems, score: pct * 100 + tiebreak, icons, legendaries, gameScore: state.gameScore || 0 };
+
+  return {
+    pct,
+    collected,
+    totalItems,
+    score: pct * 100 + tiebreak,
+    icons,
+    legendaries,
+    gameScore: state.gameScore || 0
+  };
 }
 
 // Write my entry to Firestore
 async function publishMyRanking() {
+  if(rkIsAdminNow()) {
+    console.log('[Ranking] Admin mode — ranking publish skipped.');
+    return;
+  }
+
   if(!state.userId || state.userMode !== 'firebase') return;
   if(!window._firebase) return;
+
+  const user = rkCurrentUser();
+  const userEmail = (user?.email || '').toLowerCase();
+
+  if(userEmail === RK_ADMIN_EMAIL) {
+    console.log('[Ranking] Admin email detected — ranking publish skipped.');
+    return;
+  }
+
   const { db, doc, setDoc } = window._firebase;
   const me = computeMyScore();
-  const user = window._firebase.auth.currentUser;
+
   const entry = {
     uid: state.userId,
+    email: userEmail,
+    isAdmin: false,
     displayName: user?.displayName || 'Coleccionista',
     photoURL: user?.photoURL || null,
     pct: me.pct,
@@ -245,17 +380,21 @@ async function publishMyRanking() {
     gameScore: me.gameScore,
     updatedAt: new Date().toISOString(),
   };
+
   try {
     await setDoc(doc(db, 'ranking', state.userId), entry);
-  } catch(e) { console.error('Ranking write error:', e); }
+  } catch(e) {
+    console.error('[Ranking] Write error:', e);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════════════════
 function renderRanking(page) {
-  // Publish my stats first
-  publishMyRanking();
+  if(!rkIsAdminNow()) {
+    publishMyRanking();
+  }
 
   page.innerHTML = `<div class="rk-wrap page-enter">
     <div class="rk-hero">
@@ -268,7 +407,9 @@ function renderRanking(page) {
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
           <span class="rk-live"><span class="rk-live-dot"></span>EN VIVO</span>
-          <button class="rk-share-btn" onclick="shareMyProfile()">📤 Mi perfil</button>
+          <button class="rk-share-btn" onclick="shareMyProfile()" ${rkIsAdminNow() ? 'disabled title="El admin no participa en rankings"' : ''}>
+            📤 Mi perfil
+          </button>
         </div>
       </div>
       <div class="rk-hero-stats" id="rk-hero-stats" style="margin-top:14px;">
@@ -278,19 +419,29 @@ function renderRanking(page) {
       </div>
     </div>
 
-    <!-- My rank card -->
+    ${rkIsAdminNow() ? `
+      <div class="rk-admin-notice">
+        <div class="rk-admin-notice-icon">🛡️</div>
+        <div>
+          <div class="rk-admin-notice-title">MODO ADMINISTRADOR</div>
+          <div class="rk-admin-notice-text">
+            Estás viendo el ranking como administrador. Tu cuenta tiene el álbum completo para pruebas,
+            pero no participa, no se publica y no aparece en los listados.
+          </div>
+        </div>
+      </div>
+    ` : ''}
+
     <div id="rk-my-card-wrap"></div>
 
-    <!-- Tabs -->
     <div class="rk-tabs">
       <button class="rk-tab active" id="rkt-global"  onclick="setRkTab('global')">🌍 Global</button>
       <button class="rk-tab"        id="rkt-country" onclick="setRkTab('country')">🚩 Por país favorito</button>
       <button class="rk-tab"        id="rkt-icons"   onclick="setRkTab('icons')">⭐ Cazadores de iconos</button>
     </div>
 
-    <!-- Podium -->
     <div class="rk-podium" id="rk-podium">
-      ${[1,2,3].map(i=>`
+      ${[1,2,3].map(i => `
         <div class="rk-podium-card p${i}">
           ${i===1?'<div class="rk-crown">👑</div>':''}
           <div class="rk-podium-medal">${['🥇','🥈','🥉'][i-1]}</div>
@@ -300,13 +451,12 @@ function renderRanking(page) {
         </div>`).join('')}
     </div>
 
-    <!-- Full table -->
     <div class="rk-table">
       <div class="rk-table-head">
         <div>#</div><div>Coleccionista</div><div>LÁMINAS</div><div>ÍCONOS</div><div>%</div>
       </div>
       <div id="rk-table-body">
-        ${Array.from({length:8}).map(()=>`
+        ${Array.from({length:8}).map(() => `
           <div class="rk-row">
             <div class="rk-skeleton" style="width:24px;height:18px;margin:auto;"></div>
             <div style="display:flex;align-items:center;gap:10px;">
@@ -332,7 +482,6 @@ function startRankingListener() {
   }
 
   if(!window._firebase) {
-    // Demo mode: use mock data
     setTimeout(() => {
       renderDemoRanking();
     }, 800);
@@ -342,98 +491,143 @@ function startRankingListener() {
   const { db, collection, query, onSnapshot } = window._firebase;
 
   try {
-    // Query top 50 by score descending
     const q = query(collection(db, 'ranking'));
+
     rankingState.unsubscribe = onSnapshot(q, (snap) => {
       const docs = [];
-      snap.forEach(d => docs.push({id: d.id, ...d.data()}));
-      // Sort by score desc
-      docs.sort((a,b) => (b.score||0) - (a.score||0));
-      rankingState.data = docs;
-      rankingState.totalUsers = docs.length;
+
+      snap.forEach(d => {
+        docs.push({
+          id: d.id,
+          ...d.data()
+        });
+      });
+
+      const cleanDocs = rkCleanData(docs);
+
+      rankingState.data = cleanDocs;
+      rankingState.totalUsers = cleanDocs.length;
       rankingState.loading = false;
       rankingState.lastUpdated = new Date();
-      renderRankingData(docs);
+
+      renderRankingData(cleanDocs);
     }, (err) => {
-      console.error('Ranking listener error:', err);
+      console.error('[Ranking] Listener error:', err);
       renderDemoRanking();
     });
   } catch(e) {
-    console.error('Ranking setup error:', e);
+    console.error('[Ranking] Setup error:', e);
     renderDemoRanking();
   }
 }
 
-// ── DEMO DATA (when Firebase not configured) ──────────────
+// ── DEMO DATA ─────────────────────────────────────────────
 function renderDemoRanking() {
   const me = computeMyScore();
+
   const demoData = [
-    {uid:'demo1', displayName:'⚽ CraqueDigital',    photoURL:null, pct:94, collected:144, icons:8, legendaries:28, score:9440, gameScore:1850},
-    {uid:'demo2', displayName:'🇧🇷 Vinicius_Fan',   photoURL:null, pct:88, collected:134, icons:7, legendaries:24, score:8800, gameScore:1420},
-    {uid:'demo3', displayName:'🏆 AlbumMaster',       photoURL:null, pct:82, collected:125, icons:6, legendaries:20, score:8200, gameScore:1200},
-    {uid:'demo4', displayName:'⭐ MundialFaraon',     photoURL:null, pct:76, collected:116, icons:5, legendaries:17, score:7600, gameScore:980},
-    {uid:'demo5', displayName:'🐐 MessiEterno',       photoURL:null, pct:71, collected:108, icons:4, legendaries:15, score:7100, gameScore:860},
-    {uid:'demo6', displayName:'🔥 HaalandBeast',      photoURL:null, pct:65, collected:99,  icons:3, legendaries:12, score:6500, gameScore:740},
-    {uid:'demo7', displayName:'💪 LaGarraCharrua',    photoURL:null, pct:58, collected:88,  icons:2, legendaries:10, score:5800, gameScore:620},
-    {uid:'demo8', displayName:'⚡ ElTri_Siempre',     photoURL:null, pct:47, collected:71,  icons:1, legendaries:7,  score:4700, gameScore:410},
-    {uid: state.userId||'me', displayName: window._firebase?.auth?.currentUser?.displayName||'Tú',
-     photoURL: window._firebase?.auth?.currentUser?.photoURL||null,
-     pct: me.pct, collected: me.collected, icons: me.icons, legendaries: me.legendaries,
-     score: me.score, gameScore: me.gameScore},
-  ].sort((a,b)=>b.score-a.score);
-  rankingState.data = demoData;
-  rankingState.totalUsers = demoData.length;
+    {uid:'demo1', displayName:'⚽ CraqueDigital',    photoURL:null, pct:94, collected:144, icons:8, legendaries:28, score:9440, gameScore:1850, email:'demo1@app.local', isAdmin:false},
+    {uid:'demo2', displayName:'🇧🇷 Vinicius_Fan',   photoURL:null, pct:88, collected:134, icons:7, legendaries:24, score:8800, gameScore:1420, email:'demo2@app.local', isAdmin:false},
+    {uid:'demo3', displayName:'🏆 AlbumMaster',     photoURL:null, pct:82, collected:125, icons:6, legendaries:20, score:8200, gameScore:1200, email:'demo3@app.local', isAdmin:false},
+    {uid:'demo4', displayName:'⭐ MundialFaraon',   photoURL:null, pct:76, collected:116, icons:5, legendaries:17, score:7600, gameScore:980,  email:'demo4@app.local', isAdmin:false},
+    {uid:'demo5', displayName:'🐐 MessiEterno',     photoURL:null, pct:71, collected:108, icons:4, legendaries:15, score:7100, gameScore:860,  email:'demo5@app.local', isAdmin:false},
+    {uid:'demo6', displayName:'🔥 HaalandBeast',    photoURL:null, pct:65, collected:99,  icons:3, legendaries:12, score:6500, gameScore:740,  email:'demo6@app.local', isAdmin:false},
+    {uid:'demo7', displayName:'💪 LaGarraCharrua',  photoURL:null, pct:58, collected:88,  icons:2, legendaries:10, score:5800, gameScore:620,  email:'demo7@app.local', isAdmin:false},
+    {uid:'demo8', displayName:'⚡ ElTri_Siempre',   photoURL:null, pct:47, collected:71,  icons:1, legendaries:7,  score:4700, gameScore:410,  email:'demo8@app.local', isAdmin:false},
+  ];
+
+  if(!rkIsAdminNow()) {
+    demoData.push({
+      uid: state.userId || 'me',
+      displayName: rkCurrentUser()?.displayName || 'Tú',
+      photoURL: rkCurrentUser()?.photoURL || null,
+      email: rkCurrentEmail(),
+      isAdmin: false,
+      pct: me.pct,
+      collected: me.collected,
+      icons: me.icons,
+      legendaries: me.legendaries,
+      score: me.score,
+      gameScore: me.gameScore
+    });
+  }
+
+  const cleanDemoData = rkCleanData(demoData);
+
+  rankingState.data = cleanDemoData;
+  rankingState.totalUsers = cleanDemoData.length;
   rankingState.loading = false;
-  renderRankingData(demoData);
+
+  renderRankingData(cleanDemoData);
 }
 
 // ── RENDER DATA ───────────────────────────────────────────
 function renderRankingData(data) {
-  if(!data.length) return;
+  const cleanData = rkCleanData(data || []);
   const myUid = state.userId;
-  const myIdx = data.findIndex(d => d.uid === myUid);
-  const myPos = myIdx >= 0 ? myIdx + 1 : null;
-  const me = computeMyScore();
 
   // Update hero stats
   const heroStats = document.getElementById('rk-hero-stats');
   if(heroStats) {
-    const completes = data.filter(d=>d.pct>=100).length;
-    const avgPct = data.length ? Math.round(data.reduce((a,d)=>a+(d.pct||0),0)/data.length) : 0;
+    const completes = cleanData.filter(d => (d.pct || 0) >= 100).length;
+    const avgPct = cleanData.length
+      ? Math.round(cleanData.reduce((a,d) => a + (d.pct || 0), 0) / cleanData.length)
+      : 0;
+
     heroStats.innerHTML = `
-      <div class="rk-hero-stat"><div class="n">${data.length}</div><div class="l">COLECCIONISTAS</div></div>
+      <div class="rk-hero-stat"><div class="n">${cleanData.length}</div><div class="l">COLECCIONISTAS</div></div>
       <div class="rk-hero-stat"><div class="n" style="color:var(--green)">${completes}</div><div class="l">ÁLBUM COMPLETO</div></div>
       <div class="rk-hero-stat"><div class="n">${avgPct}%</div><div class="l">PROMEDIO GLOBAL</div></div>`;
   }
 
+  if(!cleanData.length) {
+    renderEmptyRanking();
+    return;
+  }
+
+  const myIdx = cleanData.findIndex(d => d.uid === myUid);
+  const myPos = myIdx >= 0 ? myIdx + 1 : null;
+  const me = computeMyScore();
+
   // My rank card
   const myWrap = document.getElementById('rk-my-card-wrap');
   if(myWrap) {
-    const myEntry = data[myIdx] || {pct: me.pct, collected: me.collected, icons: me.icons};
-    myWrap.innerHTML = `<div class="rk-my-card">
-      <div class="rk-my-pos${!myPos?' unranked':''}">${myPos ? '#'+myPos : 'Sin ranking'}</div>
-      <div class="rk-my-info">
-        <div class="rk-my-name">${window._firebase?.auth?.currentUser?.displayName||'Tú'}</div>
-        <div class="rk-my-stats">
-          ${myEntry.collected||0} láminas · ${myEntry.icons||0} íconos · ${myEntry.legendaries||0} legendarias
-          ''
+    if(rkIsAdminNow()) {
+      myWrap.innerHTML = '';
+    } else {
+      const currentUser = rkCurrentUser();
+      const myEntry = cleanData[myIdx] || {
+        pct: me.pct,
+        collected: me.collected,
+        icons: me.icons,
+        legendaries: me.legendaries
+      };
+
+      myWrap.innerHTML = `<div class="rk-my-card">
+        <div class="rk-my-pos${!myPos ? ' unranked' : ''}">
+          ${myPos ? '#'+myPos : 'Sin ranking'}
         </div>
-        ${data.length > 1 && myPos ? `<div style="font-size:10px;color:var(--muted);font-family:var(--fm);margin-top:4px;">
-          Superas al ${Math.round(((data.length-myPos)/data.length)*100)}% de coleccionistas
-        </div>` : ''}
-      </div>
-      <div class="rk-my-progress">
-        <div class="rk-my-pct">${myEntry.pct||me.pct}%</div>
-        <div class="rk-my-pct-label">COMPLETADO</div>
-        
-      </div>
-    </div>`;
+        <div class="rk-my-info">
+          <div class="rk-my-name">${rkEscape(currentUser?.displayName || 'Tú')}</div>
+          <div class="rk-my-stats">
+            ${myEntry.collected || 0} láminas · ${myEntry.icons || 0} íconos · ${myEntry.legendaries || 0} legendarias
+          </div>
+          ${cleanData.length > 1 && myPos ? `<div style="font-size:10px;color:var(--muted);font-family:var(--fm);margin-top:4px;">
+            Superas al ${Math.round(((cleanData.length - myPos) / cleanData.length) * 100)}% de coleccionistas
+          </div>` : ''}
+        </div>
+        <div class="rk-my-progress">
+          <div class="rk-my-pct">${myEntry.pct || me.pct}%</div>
+          <div class="rk-my-pct-label">COMPLETADO</div>
+        </div>
+      </div>`;
+    }
   }
 
-  // Podium (top 3)
+  // Podium
   const podium = document.getElementById('rk-podium');
   if(podium) {
-    const top3 = data.slice(0,3);
+    const top3 = cleanData.slice(0,3);
     const medals = ['🥇','🥈','🥉'];
     const pClasses = ['p1','p2','p3'];
     const colors = [
@@ -441,20 +635,24 @@ function renderRankingData(data) {
       'linear-gradient(135deg,rgba(192,192,192,0.15),rgba(192,192,192,0.03))',
       'linear-gradient(135deg,rgba(176,141,87,0.15),rgba(176,141,87,0.03))',
     ];
+
     podium.innerHTML = top3.map((u,i) => {
       const isMe = u.uid === myUid;
-      const initials = (u.displayName||'?').replace(/[^a-zA-Z\u00C0-\u024F\u4e00-\u9fa5 ]/g,'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
-      return `<div class="rk-podium-card ${pClasses[i]}" style="${i===0?'background:'+colors[i]+';':''}" onclick="if('${u.uid}'!=='${myUid}')toast('${u.displayName||'Usuario'} — ${u.pct}% completado')">
-        ${i===0?'<div class="rk-crown">👑</div>':''}
+      const initials = rkInitials(u.displayName);
+      const name = rkEscape(u.displayName || 'Coleccionista');
+      const photo = u.photoURL ? rkAttr(u.photoURL) : '';
+
+      return `<div class="rk-podium-card ${pClasses[i]}" style="${i===0 ? 'background:'+colors[i]+';' : ''}">
+        ${i===0 ? '<div class="rk-crown">👑</div>' : ''}
         <div class="rk-podium-medal">${medals[i]}</div>
         <div class="rk-podium-avatar" style="background:${avatarGradient(u.uid)}">
-          ${u.photoURL
-            ? `<img src="${u.photoURL}" onerror="this.style.display='none'">`
+          ${photo
+            ? `<img src="${photo}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
             : `<span>${initials}</span>`}
         </div>
-        <div class="rk-podium-name">${u.displayName||'Coleccionista'}${isMe?' <span class="rk-badge-me">TÚ</span>':''}</div>
-        <div class="rk-podium-pct">${u.pct||0}%</div>
-        <div class="rk-podium-detail">${u.collected||0} láminas · ${u.icons||0} íconos</div>
+        <div class="rk-podium-name">${name}${isMe ? ' <span class="rk-badge-me">TÚ</span>' : ''}</div>
+        <div class="rk-podium-pct">${u.pct || 0}%</div>
+        <div class="rk-podium-detail">${u.collected || 0} láminas · ${u.icons || 0} íconos</div>
       </div>`;
     }).join('');
   }
@@ -463,82 +661,145 @@ function renderRankingData(data) {
   const tbody = document.getElementById('rk-table-body');
   if(!tbody) return;
 
-  const maxScore = data[0]?.score || 1;
+  const maxScore = cleanData[0]?.score || 1;
 
-  tbody.innerHTML = data.map((u, idx) => {
+  tbody.innerHTML = cleanData.map((u, idx) => {
     const pos = idx + 1;
     const isMe = u.uid === myUid;
-    const posClass = pos===1?'p1':pos===2?'p2':pos===3?'p3':'pn';
-    const posLabel = pos<=3 ? ['🥇','🥈','🥉'][pos-1] : pos;
-    const barW = Math.round((u.score||0)/maxScore*100);
-    const initials = (u.displayName||'?').replace(/[^a-zA-Z\u00C0-\u024F ]/g,'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
+    const posClass = pos === 1 ? 'p1' : pos === 2 ? 'p2' : pos === 3 ? 'p3' : 'pn';
+    const posLabel = pos <= 3 ? ['🥇','🥈','🥉'][pos-1] : pos;
+    const barW = Math.round(((u.score || 0) / maxScore) * 100);
+    const initials = rkInitials(u.displayName);
+    const name = rkEscape(u.displayName || 'Coleccionista');
+    const photo = u.photoURL ? rkAttr(u.photoURL) : '';
 
-    return `<div class="rk-row${isMe?' me':''}">
+    return `<div class="rk-row${isMe ? ' me' : ''}">
       <div class="rk-pos ${posClass}">${posLabel}</div>
       <div class="rk-user">
         <div class="rk-avatar-sm" style="background:${avatarGradient(u.uid)}">
-          ${u.photoURL
-            ? `<img src="${u.photoURL}" onerror="this.style.display='none'">`
+          ${photo
+            ? `<img src="${photo}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
             : `<span>${initials}</span>`}
         </div>
         <div>
-          <div class="rk-user-name">${u.displayName||'Coleccionista'}${isMe?'<span class="rk-badge-me">TÚ</span>':''}</div>
-          <div class="rk-user-sub">Trivia: ${u.gameScore||0} pts</div>
+          <div class="rk-user-name">${name}${isMe ? '<span class="rk-badge-me">TÚ</span>' : ''}</div>
+          <div class="rk-user-sub">Trivia: ${u.gameScore || 0} pts</div>
         </div>
       </div>
       <div>
-        <div class="rk-cell">${u.collected||0}</div>
+        <div class="rk-cell">${u.collected || 0}</div>
         <div class="rk-cell-bar-wrap"><div class="rk-cell-bar" style="width:${barW}%"></div></div>
       </div>
-      <div class="rk-cell">${u.icons||0}</div>
-      <div class="rk-cell green">${u.pct||0}%</div>
+      <div class="rk-cell">${u.icons || 0}</div>
+      <div class="rk-cell green">${u.pct || 0}%</div>
     </div>`;
   }).join('');
+}
+
+function renderEmptyRanking() {
+  const myWrap = document.getElementById('rk-my-card-wrap');
+  if(myWrap) myWrap.innerHTML = '';
+
+  const podium = document.getElementById('rk-podium');
+  if(podium) {
+    podium.innerHTML = `
+      <div class="rk-empty" style="grid-column:1/-1;">
+        <div class="rk-empty-icon">🏅</div>
+        <div class="rk-empty-title">Aún no hay coleccionistas</div>
+        <div>Cuando los usuarios empiecen a guardar progreso, aparecerán aquí.</div>
+      </div>`;
+  }
+
+  const tbody = document.getElementById('rk-table-body');
+  if(tbody) {
+    tbody.innerHTML = `
+      <div class="rk-empty">
+        <div class="rk-empty-icon">📭</div>
+        <div class="rk-empty-title">Ranking vacío</div>
+        <div>No hay registros públicos todavía.</div>
+      </div>`;
+  }
 }
 
 // ── TABS ──────────────────────────────────────────────────
 window.setRkTab = function(tab) {
   rankingState.tab = tab;
+
   document.querySelectorAll('.rk-tab').forEach(b => b.classList.remove('active'));
   document.getElementById(`rkt-${tab}`)?.classList.add('active');
 
-  let sorted = [...rankingState.data];
+  let sorted = rkCleanData([...rankingState.data]);
+
   if(tab === 'icons') {
-    sorted.sort((a,b) => (b.icons||0) - (a.icons||0) || (b.score||0) - (a.score||0));
+    sorted.sort((a,b) =>
+      (b.icons || 0) - (a.icons || 0) ||
+      (b.legendaries || 0) - (a.legendaries || 0) ||
+      (b.score || 0) - (a.score || 0)
+    );
+  } else if(tab === 'country') {
+    // Preparado para cuando guardemos país favorito en ranking.
+    sorted.sort((a,b) =>
+      String(a.favTeam || '').localeCompare(String(b.favTeam || '')) ||
+      (b.score || 0) - (a.score || 0)
+    );
   } else {
-    sorted.sort((a,b) => (b.score||0) - (a.score||0));
+    sorted.sort((a,b) => (b.score || 0) - (a.score || 0));
   }
+
   renderRankingData(sorted);
 };
 
 // ── HELPERS ───────────────────────────────────────────────
 function avatarGradient(uid) {
-  const seed = (uid||'x').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+  const seed = (uid || 'x').split('').reduce((a,c) => a + c.charCodeAt(0), 0);
+
   const colors = [
-    ['#E31E24','#004F9F'], ['#00A650','#004F9F'], ['#E31E24','#00A650'],
-    ['#9C27B0','#E31E24'], ['#FF6600','#9C27B0'], ['#004F9F','#00A650'],
-    ['#E31E24','#FF6600'], ['#00BCD4','#004F9F'],
+    ['#E31E24','#004F9F'],
+    ['#00A650','#004F9F'],
+    ['#E31E24','#00A650'],
+    ['#9C27B0','#E31E24'],
+    ['#FF6600','#9C27B0'],
+    ['#004F9F','#00A650'],
+    ['#E31E24','#FF6600'],
+    ['#00BCD4','#004F9F'],
   ];
+
   const pair = colors[seed % colors.length];
   return `linear-gradient(135deg,${pair[0]},${pair[1]})`;
 }
 
 window.shareMyProfile = function() {
+  if(rkIsAdminNow()) {
+    toast('El administrador no participa en el ranking', 'error');
+    return;
+  }
+
   const me = computeMyScore();
-  const pos = rankingState.data.findIndex(d=>d.uid===state.userId) + 1;
+  const cleanData = rkCleanData(rankingState.data);
+  const pos = cleanData.findIndex(d => d.uid === state.userId) + 1;
   const posStr = pos > 0 ? `#${pos} en el ranking global` : 'en el ranking';
-  const text = `🏅 Soy ${posStr} del Álbum Mundial 2026\n\n⚽ ${me.collected}/${me.totalItems} láminas (${me.pct}%)\n⭐ ${me.icons} íconos · 🌟 ${me.legendaries} legendarias\n🎮 Trivia: ${me.gameScore} pts\n\n#AlbumMundial2026 #FIFAWorldCup2026`;
+
+  const text = `🏅 Soy ${posStr} del Álbum Mundial 2026
+
+⚽ ${me.collected}/${me.totalItems} láminas (${me.pct}%)
+⭐ ${me.icons} íconos · 🌟 ${me.legendaries} legendarias
+🎮 Trivia: ${me.gameScore} pts
+
+#AlbumMundial2026 #FIFAWorldCup2026`;
+
   navigator.clipboard.writeText(text)
     .then(() => toast('Perfil copiado al portapapeles ✓', 'success'))
-    .catch(() => toast('No se pudo copiar'));
+    .catch(() => toast('No se pudo copiar', 'error'));
 };
 
-// Auto-publish when state changes (hook into saveState)
+// Auto-publish when state changes
 const _origSave = window.saveState;
 if(_origSave) {
   window.saveState = function() {
     _origSave();
-    // Debounced publish to ranking
+
+    if(rkIsAdminNow()) return;
+
     clearTimeout(window._rkPublishTimer);
     window._rkPublishTimer = setTimeout(publishMyRanking, 5000);
   };
@@ -551,5 +812,6 @@ window.navigate = function(view, code) {
     rankingState.unsubscribe();
     rankingState.unsubscribe = null;
   }
+
   _origNav(view, code);
 };
