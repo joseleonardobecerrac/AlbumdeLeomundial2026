@@ -12,6 +12,10 @@ const state = {
   gameStreak: 0,
   gameBest: 0,
 
+  // ── Rate limiting de sobres (verificado server-side) ──
+  packOpens: {},        // { 'YYYY-MM-DD': count } — solo local, truth está en Firestore
+  lastPackDate: null,
+
   bracket: {
     r32: Array.from({length:16},(_,i)=>({id:`R32-${i+1}`,home:null,away:null,hs:null,as:null,winner:null})),
     qf:  Array.from({length:8}, (_,i)=>({id:`QF-${i+1}`, home:null,away:null,hs:null,as:null,winner:null})),
@@ -87,6 +91,46 @@ function setSyncStatus(s) {
     lbl.textContent = 'Sincronizado';
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// PACK RATE LIMIT — Helpers client-side
+// La verdad está en Firestore/Cloud Function.
+// Esto solo es la capa visual para UX inmediata.
+// ═══════════════════════════════════════════════════════════
+const MAX_PACKS_PER_DAY = 5;
+
+function getTodayKey() {
+  return new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
+}
+
+function getPacksToday() {
+  if (state.isAdmin) return 0; // admin sin límite
+  const key = getTodayKey();
+  return (state.packOpens && state.packOpens[key]) || 0;
+}
+
+function getPacksRemaining() {
+  return Math.max(0, MAX_PACKS_PER_DAY - getPacksToday());
+}
+
+function recordPackOpen() {
+  if (state.isAdmin) return;
+  const key = getTodayKey();
+  if (!state.packOpens) state.packOpens = {};
+  state.packOpens[key] = (state.packOpens[key] || 0) + 1;
+  // Limpiar días viejos para no acumular basura
+  Object.keys(state.packOpens).forEach(k => {
+    if (k !== key) delete state.packOpens[k];
+  });
+  saveState();
+}
+
+// Exponer al scope global
+window.getPacksToday    = getPacksToday;
+window.getPacksRemaining = getPacksRemaining;
+window.recordPackOpen   = recordPackOpen;
+window.MAX_PACKS_PER_DAY = MAX_PACKS_PER_DAY;
 
 async function saveToFirestore() {
   // El admin no guarda progreso real ni modifica su álbum en Firestore
@@ -171,6 +215,7 @@ async function loadFromFirestore(uid) {
       if(d.gameBest)    state.gameBest    = d.gameBest;
       if(d.favTeam)     state.favTeam     = d.favTeam;
       if(d.favMissions) state.favMissions = d.favMissions;
+      if(d.packOpens)   state.packOpens   = d.packOpens;
 
       console.log('[Auth] Loaded existing album for', uid, '—', state.collected.size, 'stickers');
     } else {
@@ -204,6 +249,7 @@ function loadLocalFallback() {
       if(d.gameBest) state.gameBest = d.gameBest;
       if(d.favTeam) state.favTeam = d.favTeam;
       if(d.favMissions) state.favMissions = d.favMissions;
+      if(d.packOpens)   state.packOpens   = d.packOpens;
     }
   } catch(e) {
     console.warn('[LocalStorage] Load fallback failed:', e);
@@ -436,6 +482,8 @@ function resetStateCompletely() {
 
   state.favTeam           = null;
   state.favMissions       = {};
+  state.packOpens         = {};
+  state.lastPackDate      = null;
 
   state.bracket = {
     r32: Array.from({length:16},(_,i)=>({id:`R32-${i+1}`,home:null,away:null,hs:null,as:null,winner:null})),
@@ -638,10 +686,45 @@ function renderHome(page) {
 // ═══════════════════════════════════════════════════════════
 // PACK OPENING
 // ═══════════════════════════════════════════════════════════
+// ── URL del proxy Cloud Function (cambia por tu URL real de Firebase) ──
+// Ejemplo: 'https://us-central1-algum-mundial-2026.cloudfunctions.net'
+const CLOUD_FUNCTION_BASE = window.CLOUD_FUNCTION_BASE || '';
+
+// ── Obtener ID token de Firebase del usuario actual ────────
+async function getFirebaseIdToken() {
+  try {
+    const { auth } = fb();
+    const user = auth.currentUser;
+    if (!user) return null;
+    return await user.getIdToken();
+  } catch(e) {
+    console.warn('[Auth] No se pudo obtener ID token:', e);
+    return null;
+  }
+}
+
+// ── Pack Opening — con rate limit client-side y verificación server-side ──
 function renderPack(page) {
   const allPlayers = COUNTRIES.flatMap(c => c.players.map(p => ({...p, countryCode:c.code, flag:c.flag})));
   const allStadiums = STADIUMS.map(s => ({id:s.id,name:s.name,pos:null,club:s.city,rarity:'rare',e:'🏟️',isStadium:true,flag:s.flag}));
   const pool = [...allPlayers, ...allStadiums];
+
+  // ── Rate limit UI ─────────────────────────────────────────
+  const remaining  = getPacksRemaining();
+  const packsToday = getPacksToday();
+  const limitReached = !state.isAdmin && remaining <= 0;
+
+  const packCounterHTML = state.isAdmin
+    ? `<div class="pack-counter admin">👑 Admin — sobres ilimitados</div>`
+    : `<div class="pack-counter">
+        <span class="pack-counter-num ${remaining === 0 ? 'zero' : remaining <= 2 ? 'low' : ''}">${remaining}</span>
+        <span class="pack-counter-label">sobre${remaining !== 1 ? 's' : ''} restante${remaining !== 1 ? 's' : ''} hoy</span>
+        <div class="pack-counter-dots">
+          ${Array.from({length: MAX_PACKS_PER_DAY}).map((_,i) =>
+            `<div class="pack-dot ${i < packsToday ? 'used' : ''}"></div>`
+          ).join('')}
+        </div>
+      </div>`;
 
   page.innerHTML = `<div id="pack-scene" class="page-enter">
     <div class="pack-header">
@@ -649,6 +732,15 @@ function renderPack(page) {
       <div class="pack-date">${new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'}).toUpperCase()}</div>
     </div>
 
+    ${packCounterHTML}
+
+    ${limitReached ? `
+    <div class="pack-limit-msg">
+      <div class="pack-limit-icon">📦</div>
+      <div class="pack-limit-title">¡Sobres de hoy agotados!</div>
+      <div class="pack-limit-sub">Vuelve mañana para abrir ${MAX_PACKS_PER_DAY} sobres más.<br>Tu colección se guardó correctamente.</div>
+      <button class="tb-btn gold" onclick="navigate('home')" style="margin-top:16px;padding:10px 24px;">Ver mi álbum</button>
+    </div>` : `
     <div class="pack-card-wrap" id="pack-card-wrap" onclick="openPack()">
       <div class="pack-card" id="pack-card">
         <div class="pack-face pack-front">
@@ -660,33 +752,147 @@ function renderPack(page) {
         <div class="pack-face pack-back">📦</div>
       </div>
     </div>
-    <div class="pack-hint" id="pack-hint">TAP PARA ABRIR</div>
+    <div class="pack-hint" id="pack-hint">TAP PARA ABRIR</div>`}
 
     <div class="pack-reveal" id="pack-reveal">
       <div class="section-label" style="margin-bottom:16px;">Láminas obtenidas</div>
       <div class="pack-reveal-grid" id="pack-grid"></div>
       <div style="display:flex;gap:10px;justify-content:center;margin-top:8px;">
         <button class="tb-btn gold" onclick="navigate('home')" style="padding:8px 20px;">Ir al álbum</button>
-        <button class="tb-btn" onclick="renderPack(document.getElementById('page'))" style="padding:8px 20px;">Otro sobre</button>
+        ${getPacksRemaining() > 1 || state.isAdmin
+          ? `<button class="tb-btn" onclick="renderPack(document.getElementById('page'))" style="padding:8px 20px;">Otro sobre</button>`
+          : ''}
       </div>
     </div>
   </div>`;
 
-  window.openPack = function() {
+  // Inyectar estilos del counter (solo una vez)
+  if (!document.getElementById('pack-counter-styles')) {
+    const s = document.createElement('style');
+    s.id = 'pack-counter-styles';
+    s.textContent = `
+      .pack-counter {
+        display:flex;align-items:center;gap:10px;
+        background:var(--surface2);border:1px solid var(--border);
+        border-radius:12px;padding:10px 18px;margin-bottom:16px;
+        font-family:var(--fb);
+      }
+      .pack-counter.admin { background:rgba(239,159,39,0.06);border-color:rgba(239,159,39,0.2);color:var(--gold); }
+      .pack-counter-num { font-family:var(--fd);font-size:28px;line-height:1; }
+      .pack-counter-num.low  { color:var(--gold); }
+      .pack-counter-num.zero { color:var(--red); }
+      .pack-counter-label { font-size:12px;color:var(--muted);font-family:var(--fs); }
+      .pack-counter-dots { display:flex;gap:5px;margin-left:auto; }
+      .pack-dot { width:10px;height:10px;border-radius:50%;background:var(--border2);transition:background .2s; }
+      .pack-dot.used { background:var(--red); }
+      .pack-limit-msg {
+        display:flex;flex-direction:column;align-items:center;
+        padding:40px 20px;text-align:center;
+        background:var(--surface2);border:1px solid var(--border);border-radius:16px;
+      }
+      .pack-limit-icon { font-size:56px;margin-bottom:12px; }
+      .pack-limit-title { font-family:var(--fd);font-size:28px;letter-spacing:2px;margin-bottom:8px; }
+      .pack-limit-sub { font-size:13px;color:var(--muted);font-family:var(--fs);line-height:1.7; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  window.openPack = async function() {
     const wrap = document.getElementById('pack-card-wrap');
     const card = document.getElementById('pack-card');
     const hint = document.getElementById('pack-hint');
-    if(card.classList.contains('opening')) return;
+    if (!card || card.classList.contains('opening')) return;
+
+    // ── Verificación client-side del rate limit ───────────
+    if (!state.isAdmin && getPacksRemaining() <= 0) {
+      toast('Ya abriste todos los sobres de hoy. ¡Vuelve mañana!', 'error');
+      renderPack(page); // Re-render para mostrar mensaje de límite
+      return;
+    }
+
     wrap.style.cursor = 'default';
-    hint.style.display = 'none';
+    if (hint) hint.style.display = 'none';
     card.classList.add('opening');
 
-    setTimeout(() => {
-      const drawn = drawCards(pool, 5);
-      document.getElementById('pack-reveal').classList.add('show');
-      renderDrawnCards(drawn);
-    }, 500);
+    // ── Si hay Cloud Function disponible, usarla (server-side truth) ──
+    if (CLOUD_FUNCTION_BASE && state.userId && !state.isAdmin) {
+      try {
+        card.classList.add('loading');
+        const token = await getFirebaseIdToken();
+        const allIds = pool.map(p => p.id);
+
+        const resp = await fetch(`${CLOUD_FUNCTION_BASE}/openPack`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ allIds }),
+        });
+
+        const result = await resp.json();
+
+        if (resp.status === 429) {
+          // Límite server-side alcanzado
+          card.classList.remove('opening', 'loading');
+          toast(result.error || 'Límite diario alcanzado', 'error');
+          // Sincronizar estado local con server
+          if (result.packsToday !== undefined) {
+            const key = getTodayKey();
+            state.packOpens = { [key]: result.packsToday };
+          }
+          renderPack(page);
+          return;
+        }
+
+        if (!resp.ok) throw new Error(result.error || 'Error server');
+
+        // Éxito — sincronizar contador con server
+        if (result.packsToday !== undefined) {
+          const key = getTodayKey();
+          state.packOpens = { [key]: result.packsToday };
+        }
+
+        // Reconstruir drawn desde los IDs elegidos por el server
+        const drawn = result.cards
+          .map(id => pool.find(p => p.id === id))
+          .filter(Boolean);
+
+        card.classList.remove('loading');
+        setTimeout(() => {
+          document.getElementById('pack-reveal').classList.add('show');
+          renderDrawnCards(drawn, true /* ya guardado server-side */);
+        }, 500);
+
+      } catch(e) {
+        console.warn('[Pack] Cloud Function no disponible, modo local:', e);
+        card.classList.remove('loading');
+        // Fallback local si el server no está disponible
+        _openPackLocal(pool, card, page);
+      }
+    } else {
+      // Modo local (sin Cloud Function configurada o admin)
+      setTimeout(() => _openPackLocal(pool, card, page), 500);
+    }
   };
+}
+
+// ── Pack local (fallback cuando no hay Cloud Function) ────
+function _openPackLocal(pool, card, page) {
+  if (!state.isAdmin) {
+    // Verificar rate limit local de todos modos
+    if (getPacksRemaining() <= 0) {
+      if (card) card.classList.remove('opening');
+      toast('Límite diario alcanzado', 'error');
+      renderPack(page);
+      return;
+    }
+    recordPackOpen(); // Registrar apertura local
+  }
+  const drawn = drawCards(pool, 5);
+  const revealEl = document.getElementById('pack-reveal');
+  if (revealEl) revealEl.classList.add('show');
+  renderDrawnCards(drawn, false);
 }
 
 function drawCards(pool, count) {
@@ -719,17 +925,31 @@ function drawCards(pool, count) {
   return drawn;
 }
 
-function renderDrawnCards(drawn) {
+function renderDrawnCards(drawn, serverSide = false) {
   const grid = document.getElementById('pack-grid');
   drawn.forEach((s, i) => {
-    // Track collected / duplicates
-    if(s.isStadium) {
-      state.stadiumsCollected.add(s.id);
-    } else {
-      if(state.collected.has(s.id)) {
-        state.duplicates[s.id] = (state.duplicates[s.id]||1) + 1;
+    // Si el server ya actualizó Firestore, solo actualizamos el estado local en memoria
+    // Si es modo local, actualizamos collected/duplicates normalmente
+    if (!serverSide) {
+      if(s.isStadium) {
+        state.stadiumsCollected.add(s.id);
       } else {
-        state.collected.add(s.id);
+        if(state.collected.has(s.id)) {
+          state.duplicates[s.id] = (state.duplicates[s.id]||1) + 1;
+        } else {
+          state.collected.add(s.id);
+        }
+      }
+    } else {
+      // Modo server: sincronizamos visualmente, Firestore ya tiene la verdad
+      if(s.isStadium) {
+        state.stadiumsCollected.add(s.id);
+      } else {
+        if(state.collected.has(s.id)) {
+          state.duplicates[s.id] = (state.duplicates[s.id]||1) + 1;
+        } else {
+          state.collected.add(s.id);
+        }
       }
     }
 

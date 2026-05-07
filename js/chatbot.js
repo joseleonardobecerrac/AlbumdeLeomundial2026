@@ -659,23 +659,56 @@ async function callClaudeChat(userText) {
   // Always end with user message
   cleanMsgs.push({ role:'user', content: userText });
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: buildSystemPrompt(),
-      messages: cleanMsgs,
-    }),
-  });
+  // ── Llamar via proxy Cloud Function (API key segura en servidor) ──
+  // Si CLOUD_FUNCTION_BASE no está definido, intentar llamada directa
+  // (solo útil en desarrollo local con emulators).
+  const base = (typeof CLOUD_FUNCTION_BASE !== 'undefined' && CLOUD_FUNCTION_BASE)
+    ? CLOUD_FUNCTION_BASE
+    : '';
+
+  let response, data;
+
+  if (base) {
+    // Modo producción: proxy seguro
+    const token = await (typeof getFirebaseIdToken === 'function' ? getFirebaseIdToken() : Promise.resolve(null));
+    response = await fetch(`${base}/claudeProxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        mode: 'chat',
+        messages: cleanMsgs,
+        system: buildSystemPrompt(),
+      }),
+    });
+  } else {
+    // Modo desarrollo: llamada directa (requiere ANTHROPIC_API_KEY en window)
+    const apiKey = window.ANTHROPIC_API_KEY || '';
+    if (!apiKey) throw new Error('Configura CLOUD_FUNCTION_BASE o window.ANTHROPIC_API_KEY para desarrollo local');
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: buildSystemPrompt(),
+        messages: cleanMsgs,
+      }),
+    });
+  }
 
   if(!response.ok) {
     const err = await response.json().catch(()=>({}));
     throw new Error(err.error?.message || `HTTP ${response.status}`);
   }
 
-  const data = await response.json();
+  data = await response.json();
   return data.content?.find(b=>b.type==='text')?.text || 'No pude generar una respuesta.';
 }
 
