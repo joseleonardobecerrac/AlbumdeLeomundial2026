@@ -705,9 +705,13 @@ async function getFirebaseIdToken() {
 
 // ── Pack Opening — con rate limit client-side y verificación server-side ──
 function renderPack(page) {
-  const allPlayers = COUNTRIES.flatMap(c => c.players.map(p => ({...p, countryCode:c.code, flag:c.flag})));
+  // Pool de láminas: jugadores normales + láminas especiales + estadios
+  const allPlayers = COUNTRIES.flatMap(c => c.players.map(p => ({...p, countryCode:c.code, countryName:c.name, flagCode:c.flag})));
   const allStadiums = STADIUMS.map(s => ({id:s.id,name:s.name,pos:null,club:s.city,rarity:'rare',e:'🏟️',isStadium:true,flag:s.flag}));
   const pool = [...allPlayers, ...allStadiums];
+
+  // DEBUG: verificar que FLAG/TEAM están en el pool
+  // console.log('[Pack] Pool size:', pool.length, '| COL-FLAG:', pool.some(p=>p.id==='COL-FLAG'));
 
   // ── Rate limit UI ─────────────────────────────────────────
   const remaining  = getPacksRemaining();
@@ -956,14 +960,30 @@ function renderDrawnCards(drawn, serverSide = false) {
     const slot = document.createElement('div');
     slot.className = `pack-sticker-reveal`;
     const rarityClass = s.rarity || 'common';
-    slot.innerHTML = `<div class="sticker-slot ${rarityClass} collected" style="cursor:default;">
+    // Imagen: especial (flag/team) o jugador normal
+    let imgHTML;
+    if ((s.type === 'flag' || s.type === 'team') && typeof getSpecialStickerImageHTML === 'function') {
+      imgHTML = getSpecialStickerImageHTML(s, true, s.flagCode || s.flag);
+    } else if (typeof getStickerImageHTML === 'function') {
+      imgHTML = getStickerImageHTML(s, true);
+    } else {
+      imgHTML = `<div class="slot-silhouette">${s.e}</div>`;
+    }
+
+    // Subtítulo
+    let subHTML = '';
+    if (s.type === 'flag')  subHTML = `<div class="slot-special-label">🏳️ BANDERA OFICIAL</div>`;
+    else if (s.type === 'team') subHTML = `<div class="slot-special-label">👥 FOTO DEL PLANTEL</div>`;
+    else subHTML = `${s.club ? `<div class="slot-club">${s.club}</div>` : ''}
+        ${s.pos ? `<span class="slot-pos pos-${s.pos}">${s.pos}</span>` : ''}`;
+
+    slot.innerHTML = `<div class="sticker-slot ${rarityClass}${s.type==='flag'||s.type==='team'?' sticker-special':''} collected" style="cursor:default;">
       <div class="slot-number">${s.id}</div>
       <div class="slot-rarity-dot"></div>
-      <div class="slot-silhouette">${s.e}</div>
+      ${imgHTML}
       <div class="slot-info">
         <div class="slot-name">${s.name}</div>
-        <div class="slot-club">${s.club}</div>
-        ${s.pos?`<span class="slot-pos pos-${s.pos}">${s.pos}</span>`:''}
+        ${subHTML}
       </div>
     </div>`;
     grid.appendChild(slot);

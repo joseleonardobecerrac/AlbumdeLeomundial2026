@@ -409,24 +409,74 @@ function renderCountry(page, code) {
     </div>`;
   }
 
+  // Separar láminas especiales (FLAG y TEAM) de las de jugadores
+  const specialStickers = c.players.filter(p => p.type === 'flag' || p.type === 'team');
+  const playerStickers  = c.players.filter(p => p.type !== 'flag' && p.type !== 'team');
+
+  // Reconstruir byPos solo con jugadores normales
+  const byPosFiltered = {POR:[],DEF:[],MED:[],DEL:[]};
+  playerStickers.forEach(p => (byPosFiltered[p.pos]||byPosFiltered.DEL).push(p));
+
   let playersHTML = '';
-  ['POR','DEF','MED','DEL'].forEach(pos => {
-    if(!byPos[pos].length) return;
-    playersHTML += `<div class="section-label" style="margin-top:4px;">${posLabels[pos]}</div><div class="stickers-grid">`;
-    byPos[pos].forEach(p => {
+
+  // ── Sección: láminas especiales (bandera + plantel) ─────
+  if (specialStickers.length) {
+    playersHTML += `<div class="section-label" style="margin-top:4px;">🃏 Láminas especiales</div><div class="stickers-grid stickers-grid-special">`;
+    specialStickers.forEach(p => {
       const has = state.collected.has(p.id);
-      const dupCount = state.duplicates[p.id]||0;
-      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}" onclick="toggleSticker('${p.id}','${code}')">
-        <div class="slot-number">#${p.id.split('-')[1]}</div>
+      const dupCount = state.duplicates[p.id] || 0;
+      const imgHTML = typeof getSpecialStickerImageHTML === 'function'
+        ? getSpecialStickerImageHTML(p, has, c?.flag)
+        : `<div class="slot-silhouette">${p.e}</div>`;
+      const label = p.type === 'flag' ? '🏳️ BANDERA OFICIAL' : '👥 FOTO DEL PLANTEL';
+      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}  sticker-special" onclick="toggleSticker('${p.id}','${c.code}')">
+        <div class="slot-number">#${p.type.toUpperCase()}</div>
         <div class="slot-rarity-dot"></div>
         ${dupCount>0?`<div class="slot-duplicate-badge">×${dupCount+1}</div>`:''}
-        ${has
-          ? `<div class="slot-silhouette">${p.e}</div>`
-          : `<div class="slot-empty-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg></div>`}
+        ${imgHTML}
         <div class="slot-info">
-          <div class="slot-name">${has?p.name:'???'}</div>
-          <div class="slot-club">${has?p.club:'Falta conseguir'}</div>
-          <div class="slot-pos-row"><span class="slot-pos pos-${p.pos}">${p.pos}</span>${p.rarity!=='common'?`<span style="font-size:7px;color:var(--${p.rarity==='icon'?'icon':'legendary'}-c);font-family:var(--fm)">${p.rarity.toUpperCase()}</span>`:''}</div>
+          <div class="slot-name">${has ? p.name : '???'}</div>
+          <div class="slot-special-label">${label}</div>
+        </div>
+      </div>`;
+    });
+    playersHTML += '</div>';
+  }
+
+  ['POR','DEF','MED','DEL'].forEach(pos => {
+    if(!byPosFiltered[pos].length) return;
+    playersHTML += `<div class="section-label" style="margin-top:4px;">${posLabels[pos]}</div><div class="stickers-grid">`;
+    byPosFiltered[pos].forEach(p => {
+      const has = state.collected.has(p.id);
+      const dupCount = state.duplicates[p.id]||0;
+      // Láminas especiales: bandera y foto de equipo
+      const isSpecial = p.type === 'flag' || p.type === 'team';
+      const imgHTML = isSpecial
+        ? (typeof getSpecialStickerImageHTML === 'function'
+            ? getSpecialStickerImageHTML(p, has, c?.flag)
+            : `<div class="slot-silhouette">${p.e}</div>`)
+        : getStickerImageHTML(p, has);
+
+      // Subtítulo de la lámina
+      let slotSub = '';
+      if (isSpecial) {
+        slotSub = `<div class="slot-special-label">${p.type === 'flag' ? '🏳️ BANDERA' : '👥 PLANTEL'}</div>`;
+      } else {
+        slotSub = `<div class="slot-club">${has ? p.club : 'Falta conseguir'}</div>
+          <div class="slot-pos-row">
+            <span class="slot-pos pos-${p.pos}">${p.pos}</span>
+            ${p.rarity !== 'common' ? `<span style="font-size:7px;color:var(--${p.rarity==='icon'?'icon':'legendary'}-c);font-family:var(--fm)">${p.rarity.toUpperCase()}</span>` : ''}
+          </div>`;
+      }
+
+      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}${isSpecial?' sticker-special':''}" onclick="toggleSticker('${p.id}','${code}')">
+        <div class="slot-number">#${p.id.split('-')[1]}</div>
+        <div class="slot-rarity-dot"></div>
+        ${dupCount>0?`<div class="slot-duplicate-badge">×${dupCount+1}`+`</div>`:''}
+        ${imgHTML}
+        <div class="slot-info">
+          <div class="slot-name">${has ? p.name : (isSpecial ? '???' : '???')}</div>
+          ${slotSub}
         </div>
       </div>`;
     });
