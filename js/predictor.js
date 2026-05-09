@@ -296,52 +296,91 @@ Responde EXACTAMENTE en este JSON (sin markdown, sin texto extra):
 
 // ── CALL CLAUDE API ───────────────────────────────────────
 async function callClaude(prompt) {
+  // ── ESTRATEGIA DE CONEXIÓN (en orden de prioridad) ────────
+  // 1. Cloud Function proxy (producción segura)
+  // 2. Llamada directa con API key (desarrollo/fallback)
+
   const base = (typeof CLOUD_FUNCTION_BASE !== 'undefined' && CLOUD_FUNCTION_BASE)
-    ? CLOUD_FUNCTION_BASE
+    ? CLOUD_FUNCTION_BASE.replace(/\/$/, '')   // quitar trailing slash
     : '';
 
   let response;
 
   if (base) {
-    // Modo producción: proxy seguro — API key nunca expuesta al cliente
+    // ── Modo producción: Cloud Function proxy ──────────────
     const token = typeof getFirebaseIdToken === 'function'
-      ? await getFirebaseIdToken()
+      ? await getFirebaseIdToken().catch(() => null)
       : null;
 
-    response = await fetch(`${base}/claudeProxy`, {
+    // Intentar primero con /claudeProxy, luego con /claudeProxy/
+    const url = `${base}/claudeProxy`;
+
+    response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        mode: predState.mode || 'match',
+        mode: predState?.mode || 'match',
         prompt,
       }),
     });
+
+    // Si CORS falla, caer a modo directo con key de window
+    if (!response.ok && response.status === 0) {
+      console.warn('[Predictor] CORS en Cloud Function, intentando modo directo...');
+      return callClaudeDirect(prompt);
+    }
   } else {
-    // Modo desarrollo: llamada directa (solo con emuladores locales)
-    const apiKey = window.ANTHROPIC_API_KEY || '';
-    if (!apiKey) throw new Error('Configura CLOUD_FUNCTION_BASE en producción');
-    response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    return callClaudeDirect(prompt);
   }
 
-  if (!response.ok) throw new Error('API error ' + response.status);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'API error ' + response.status);
+  }
+
   const data = await response.json();
   const raw = data.content?.find(b => b.type === 'text')?.text || '';
-  // Strip markdown fences if any
+  const clean = raw.replace(/```json|```/g, '').trim();
+  return JSON.parse(clean);
+}
+
+// ── Llamada directa a Anthropic (requiere window.ANTHROPIC_API_KEY) ──
+async function callClaudeDirect(prompt) {
+  const apiKey = window.ANTHROPIC_API_KEY || '';
+  if (!apiKey) {
+    throw new Error(
+      'Sin API key configurada.\n\n' +
+      'Opciones:\n' +
+      '1. Despliega la Cloud Function y configura CLOUD_FUNCTION_BASE\n' +
+      '2. Para desarrollo: window.ANTHROPIC_API_KEY = "sk-ant-..."'
+    );
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'API error ' + response.status);
+  }
+
+  const data = await response.json();
+  const raw = data.content?.find(b => b.type === 'text')?.text || '';
   const clean = raw.replace(/```json|```/g, '').trim();
   return JSON.parse(clean);
 }

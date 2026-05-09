@@ -31,6 +31,9 @@ function renderTrivia(page) {
     </div>
 
     <button class="trivia-start-btn" onclick="startTrivia()">COMENZAR</button>
+    <button class="trivia-rank-btn" onclick="showTriviaRanking(document.getElementById('page'))">
+      🏅 Ver Ranking Global
+    </button>
   </div>`;
 }
 
@@ -283,6 +286,9 @@ function renderTriviaResults(page) {
     try { localStorage.setItem('trivia26_best', score); } catch(e){}
   }
 
+  // Guardar en ranking global de Firestore
+  saveTriviaScore(score, pct, correct, answered.length);
+
   const trophy = pct >= 90?'🏆':pct>=70?'🥇':pct>=50?'🥈':pct>=30?'🥉':'😅';
   const title  = pct >= 90?'EXPERTO MUNDIAL':pct>=70?'GRAN FANÁTICO':pct>=50?'AFICIONADO':pct>=30?'APRENDIZ':'NOVATO';
 
@@ -324,7 +330,116 @@ function renderTriviaResults(page) {
 
     <div class="results-btns">
       <button class="res-btn primary" onclick="triviaState.phase='lobby';triviaState.questions=[];renderTrivia(document.getElementById('page'))">JUGAR DE NUEVO</button>
+      <button class="res-btn secondary" onclick="showTriviaRanking(document.getElementById('page'))">🏅 RANKING</button>
       <button class="res-btn secondary" onclick="navigate('home')">AL ÁLBUM</button>
     </div>
   </div>`;
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// TRIVIA RANKING GLOBAL
+// ═══════════════════════════════════════════════════════════
+
+async function saveTriviaScore(score, pct, correct, total) {
+  if (!state.userId || !window._firebase) return;
+  try {
+    const { db, doc, setDoc, getDoc } = window._firebase;
+    const ref = doc(db, 'triviaRanking', state.userId);
+    const snap = await getDoc(ref);
+    const prev = snap.exists() ? snap.data() : {};
+
+    // Solo actualizar si es nuevo récord
+    if ((prev.bestScore || 0) >= score) return;
+
+    const userName = state.displayName || state.userEmail?.split('@')[0] || 'Anónimo';
+    await setDoc(ref, {
+      userId: state.userId,
+      name: userName,
+      bestScore: score,
+      bestPct: pct,
+      bestCorrect: correct,
+      bestTotal: total,
+      updatedAt: new Date().toISOString(),
+    });
+    toast('🏅 ¡Nuevo récord guardado en el ranking!', 'success');
+  } catch(e) {
+    console.warn('[Trivia] No se pudo guardar ranking:', e);
+  }
+}
+
+window.showTriviaRanking = async function(page) {
+  page.innerHTML = `<div class="page-enter" style="max-width:700px;margin:0 auto;">
+    <div style="font-family:var(--fd);font-size:40px;letter-spacing:3px;margin-bottom:4px;">🏅 RANKING TRIVIA</div>
+    <div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-bottom:24px;">Top jugadores de trivia mundialista</div>
+    <div id="trivia-rank-body">
+      <div style="text-align:center;padding:40px;color:var(--muted);font-family:var(--fs);">Cargando ranking...</div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button class="res-btn primary" onclick="triviaState.phase='lobby';triviaState.questions=[];renderTrivia(document.getElementById('page'))">
+        ▶ Jugar
+      </button>
+      <button class="res-btn secondary" onclick="navigate('home')">← Álbum</button>
+    </div>
+  </div>`;
+
+  if (!window._firebase) {
+    document.getElementById('trivia-rank-body').innerHTML =
+      '<div style="text-align:center;color:var(--muted);font-family:var(--fs);padding:20px;">Firebase no disponible</div>';
+    return;
+  }
+
+  try {
+    const { db, collection, getDocs, query } = window._firebase;
+    // Necesitamos orderBy — usar getDocs y ordenar client-side (sin índice)
+    const snap = await getDocs(collection(db, 'triviaRanking'));
+    const entries = [];
+    snap.forEach(d => entries.push(d.data()));
+    entries.sort((a,b) => (b.bestScore||0) - (a.bestScore||0));
+    const top = entries.slice(0, 25);
+
+    const myPos = entries.findIndex(e => e.userId === state.userId) + 1;
+    const myEntry = entries.find(e => e.userId === state.userId);
+
+    const podiumIcons = ['🥇','🥈','🥉'];
+
+    let html = '';
+
+    // Mi posición
+    if (myEntry) {
+      html += `<div class="trk-my-row">
+        <span class="trk-my-label">Tu posición: <strong>#${myPos}</strong></span>
+        <span class="trk-my-score">${myEntry.bestScore} pts</span>
+      </div>`;
+    }
+
+    // Tabla
+    html += `<div class="trk-table">
+      <div class="trk-header">
+        <span>#</span><span>Jugador</span><span>Puntos</span><span>Precisión</span>
+      </div>`;
+
+    top.forEach((e, i) => {
+      const isMe = e.userId === state.userId;
+      const icon = i < 3 ? podiumIcons[i] : `${i+1}`;
+      html += `<div class="trk-row${isMe?' trk-row-me':''}">
+        <span class="trk-pos">${icon}</span>
+        <span class="trk-name">${e.name || 'Anónimo'}</span>
+        <span class="trk-score" style="color:var(--gold);font-family:var(--fd);font-size:18px;">${e.bestScore}</span>
+        <span class="trk-pct" style="color:var(--${e.bestPct>=80?'green':e.bestPct>=50?'gold':'muted'})">${e.bestPct||0}%</span>
+      </div>`;
+    });
+
+    html += '</div>';
+
+    if (top.length === 0) {
+      html = '<div style="text-align:center;color:var(--muted);font-family:var(--fs);padding:40px;">Sé el primero en jugar y aparecer en el ranking 🏆</div>';
+    }
+
+    document.getElementById('trivia-rank-body').innerHTML = html;
+  } catch(e) {
+    console.error('[Trivia Ranking]', e);
+    document.getElementById('trivia-rank-body').innerHTML =
+      `<div style="text-align:center;color:var(--muted);font-family:var(--fs);padding:20px;">Error al cargar: ${e.message}</div>`;
+  }
+};

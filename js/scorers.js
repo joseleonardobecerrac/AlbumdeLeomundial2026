@@ -429,7 +429,7 @@ function renderCountry(page, code) {
         ? getSpecialStickerImageHTML(p, has, c?.flag)
         : `<div class="slot-silhouette">${p.e}</div>`;
       const label = p.type === 'flag' ? '🏳️ BANDERA OFICIAL' : '👥 FOTO DEL PLANTEL';
-      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}  sticker-special" onclick="toggleSticker('${p.id}','${c.code}')">
+      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}  sticker-special" onclick="openStickerDetail('${p.id}','${c.code}')">
         <div class="slot-number">#${p.type.toUpperCase()}</div>
         <div class="slot-rarity-dot"></div>
         ${dupCount>0?`<div class="slot-duplicate-badge">×${dupCount+1}</div>`:''}
@@ -469,7 +469,7 @@ function renderCountry(page, code) {
           </div>`;
       }
 
-      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}${isSpecial?' sticker-special':''}" onclick="toggleSticker('${p.id}','${code}')">
+      playersHTML += `<div class="sticker-slot ${p.rarity}${has?' collected':''}${isSpecial?' sticker-special':''}" onclick="openStickerDetail('${p.id}','${code}')">
         <div class="slot-number">#${p.id.split('-')[1]}</div>
         <div class="slot-rarity-dot"></div>
         ${dupCount>0?`<div class="slot-duplicate-badge">×${dupCount+1}`+`</div>`:''}
@@ -509,6 +509,116 @@ function renderCountry(page, code) {
     ${playersHTML}
   </div>`;
 }
+
+// ═══════════════════════════════════════════════════════════
+// STICKER DETAIL MODAL
+// ═══════════════════════════════════════════════════════════
+window.openStickerDetail = function(id, countryCode) {
+  const c = COUNTRIES.find(x => x.code === countryCode);
+  if (!c) return;
+  const p = c.players.find(x => x.id === id);
+  if (!p) return;
+
+  const has = state.collected.has(id);
+  const isSpecial = p.type === 'flag' || p.type === 'team';
+  const dupCount  = state.duplicates[id] || 0;
+
+  // Imagen grande para el modal
+  let modalImg = '';
+  if (isSpecial && typeof getSpecialStickerImageHTML === 'function') {
+    if (p.type === 'flag') {
+      modalImg = `<div class="sdm-flag-wrap">
+        <img src="https://flagcdn.com/w640/${c.flag}.png" alt="${c.name}"
+          onerror="this.src='https://flagcdn.com/w320/${c.flag}.png'">
+      </div>`;
+    } else {
+      const photo = typeof getPlayerPhoto === 'function' ? getPlayerPhoto(id) : null;
+      modalImg = photo
+        ? `<div class="sdm-team-wrap"><img src="${photo}" alt="${p.name}"></div>`
+        : `<div class="sdm-emoji-wrap">${p.e}</div>`;
+    }
+  } else {
+    const photo = typeof getPlayerPhoto === 'function' ? getPlayerPhoto(id) : null;
+    if (photo && has) {
+      modalImg = `<div class="sdm-player-wrap"><img src="${photo}" alt="${p.name}"></div>`;
+    } else {
+      modalImg = `<div class="sdm-emoji-wrap ${has ? '' : 'sdm-locked'}">${has ? p.e : '🔒'}</div>`;
+    }
+  }
+
+  // Rareza badge
+  const rarityColors = {common:'#8899AA',rare:'#5BA4F5',legendary:'#EF9F27',icon:'#E535AB'};
+  const rarityLabels = {common:'COMÚN',rare:'RARO',legendary:'LEGENDARIO',icon:'ÍCONO'};
+  const rc = rarityColors[p.rarity] || '#8899AA';
+  const rl = rarityLabels[p.rarity] || p.rarity.toUpperCase();
+
+  // Info específica por tipo
+  let infoRows = '';
+  if (isSpecial) {
+    infoRows = `
+      <div class="sdm-info-row"><span>Selección</span><strong>${c.name}</strong></div>
+      <div class="sdm-info-row"><span>Grupo</span><strong>Grupo ${c.group}</strong></div>
+      <div class="sdm-info-row"><span>Tipo</span><strong>${p.type === 'flag' ? 'Bandera oficial' : 'Foto del plantel'}</strong></div>
+      <div class="sdm-info-row"><span>Rareza</span><strong style="color:${rc}">${rl}</strong></div>
+    `;
+  } else {
+    infoRows = `
+      <div class="sdm-info-row"><span>Posición</span><strong>${p.pos}</strong></div>
+      <div class="sdm-info-row"><span>Club</span><strong>${has ? (p.club || '—') : '???'}</strong></div>
+      <div class="sdm-info-row"><span>Selección</span><strong>${c.name}</strong></div>
+      <div class="sdm-info-row"><span>Grupo</span><strong>Grupo ${c.group}</strong></div>
+      <div class="sdm-info-row"><span>Rareza</span><strong style="color:${rc}">${rl}</strong></div>
+      ${dupCount > 0 ? `<div class="sdm-info-row"><span>Duplicados</span><strong style="color:var(--gold)">×${dupCount}</strong></div>` : ''}
+    `;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sdm-overlay';
+  overlay.className = 'sdm-overlay';
+  overlay.innerHTML = `
+    <div class="sdm-card sdm-card-${p.rarity}">
+      <button class="sdm-close" onclick="closeStickerDetail()">✕</button>
+
+      <div class="sdm-top-bar sdm-bar-${p.rarity}"></div>
+
+      ${modalImg}
+
+      <div class="sdm-body">
+        <div class="sdm-id-row">
+          <span class="sdm-id">#${id}</span>
+          <span class="sdm-rarity-badge" style="background:${rc}22;color:${rc};border-color:${rc}44">${rl}</span>
+          ${!has ? '<span class="sdm-locked-badge">🔒 No conseguida</span>' : ''}
+        </div>
+
+        <div class="sdm-name">${has ? p.name : (isSpecial ? 'Lámina especial' : 'Jugador desconocido')}</div>
+        ${!isSpecial ? `<div class="sdm-country">${c.name} · ${c.conf}</div>` : `<div class="sdm-country">${c.name}</div>`}
+
+        <div class="sdm-info-grid">${infoRows}</div>
+
+        <div class="sdm-actions">
+          ${has
+            ? `<button class="sdm-btn sdm-btn-remove" onclick="toggleSticker('${id}','${countryCode}');closeStickerDetail()">
+                ${dupCount > 0 ? '➖ Quitar duplicado' : '🗑 Quitar lámina'}
+              </button>`
+            : `<button class="sdm-btn sdm-btn-add" onclick="toggleSticker('${id}','${countryCode}');closeStickerDetail()">
+                ✅ Marcar como obtenida
+              </button>`
+          }
+        </div>
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeStickerDetail(); });
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('sdm-open'));
+};
+
+window.closeStickerDetail = function() {
+  const el = document.getElementById('sdm-overlay');
+  if (!el) return;
+  el.classList.remove('sdm-open');
+  setTimeout(() => el.remove(), 250);
+};
 
 window.toggleSticker = function(id, countryCode) {
   const alreadyHad = state.collected.has(id);

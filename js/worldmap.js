@@ -90,29 +90,39 @@ const CONF_COLORS = {
 };
 
 function renderWorldMap(page) {
-  const totalClassified = Object.keys(MAP_COUNTRIES).length;
   const confCounts = {};
   Object.values(MAP_COUNTRIES).forEach(c => { confCounts[c.conf] = (confCounts[c.conf]||0)+1; });
+
+  // Cargar Leaflet si no está disponible
+  function loadLeaflet(cb) {
+    if (window.L) { cb(); return; }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    script.onload = cb;
+    document.head.appendChild(script);
+  }
 
   page.innerHTML = `<div class="wm-wrap page-enter">
     <div class="wm-header">
       <div>
         <div style="font-family:var(--fd);font-size:40px;letter-spacing:3px;">🗺️ MAPA MUNDIAL 2026</div>
         <div style="font-size:12px;color:var(--muted);font-family:var(--fs);margin-top:4px;">
-          48 selecciones clasificadas · Haz clic en un país para ver su página
+          48 selecciones clasificadas · Haz clic en un marcador para ver su página
         </div>
       </div>
       <div class="wm-legend" id="wm-legend"></div>
     </div>
 
-    <!-- Filter tabs -->
     <div class="wm-filter-bar">
-      <button class="wm-filter active" id="wf-group"  onclick="setMapFilter('group')">Por Grupo</button>
-      <button class="wm-filter"        id="wf-conf"   onclick="setMapFilter('conf')">Por Confederación</button>
-      <button class="wm-filter"        id="wf-collect"onclick="setMapFilter('collect')">Mi Colección</button>
+      <button class="wm-filter active" id="wf-group"   onclick="setMapFilter('group')">Por Grupo</button>
+      <button class="wm-filter"        id="wf-conf"    onclick="setMapFilter('conf')">Por Confederación</button>
+      <button class="wm-filter"        id="wf-collect" onclick="setMapFilter('collect')">Mi Colección</button>
     </div>
 
-    <!-- Stats bar -->
     <div class="wm-stats-bar">
       ${Object.entries(confCounts).map(([conf,n])=>`
         <div class="wm-stat-cell">
@@ -122,22 +132,144 @@ function renderWorldMap(page) {
         </div>`).join('')}
     </div>
 
-    <!-- SVG Map container -->
-    <div class="wm-map-container" id="wm-map-container">
-      <div class="wm-map-inner" id="wm-svg-wrap"></div>
+    <!-- Leaflet map container -->
+    <div class="wm-map-container" style="border-radius:12px;overflow:hidden;height:480px;position:relative;">
+      <div id="wm-leaflet-map" style="width:100%;height:100%;"></div>
     </div>
 
-    <!-- Tooltip -->
-    <div class="wm-tooltip" id="wm-tooltip" style="display:none;"></div>
-
-    <!-- Country grid below map -->
     <div class="section-label" style="margin-top:24px;">SELECCIONES CLASIFICADAS</div>
     <div class="wm-countries-grid" id="wm-grid"></div>
   </div>`;
 
   buildLegend('group');
-  buildSVGMap('group');
   buildCountryGrid('group');
+
+  loadLeaflet(() => initLeafletMap('group'));
+}
+
+let _leafletMap = null;
+let _leafletMarkers = [];
+let mapFilter = 'group';
+
+function initLeafletMap(filter) {
+  if (_leafletMap) {
+    _leafletMap.remove();
+    _leafletMap = null;
+  }
+
+  const isDark = !document.documentElement.classList.contains('light');
+
+  // Tile layer: CartoDB dark/light según tema
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png';
+
+  const mapEl = document.getElementById('wm-leaflet-map');
+  if (!mapEl) return;
+
+  _leafletMap = L.map('wm-leaflet-map', {
+    center: [20, 10],
+    zoom: 2,
+    minZoom: 2,
+    maxZoom: 6,
+    zoomControl: true,
+    attributionControl: false,
+  });
+
+  L.tileLayer(tileUrl, {
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(_leafletMap);
+
+  // Atribución discreta
+  L.control.attribution({ position: 'bottomright', prefix: false })
+    .addAttribution('© <a href="https://carto.com">CARTO</a> · © <a href="https://osm.org">OSM</a>')
+    .addTo(_leafletMap);
+
+  buildLeafletMarkers(filter);
+}
+
+function buildLeafletMarkers(filter) {
+  if (!_leafletMap || !window.L) return;
+
+  // Limpiar marcadores anteriores
+  _leafletMarkers.forEach(m => m.remove());
+  _leafletMarkers = [];
+
+  Object.entries(MAP_COUNTRIES).forEach(([code, m]) => {
+    const country = COUNTRIES.find(c => c.code === code);
+    if (!country) return;
+
+    const color = getCountryColor(code, filter);
+    const owned = country.players.filter(p => state.collected.has(p.id)).length;
+    const total = country.players.length;
+    const pct   = total > 0 ? Math.round(owned / total * 100) : 0;
+    const isComplete = pct === 100;
+
+    // SVG personalizado del pin con bandera
+    const pinSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46">
+        <defs>
+          <clipPath id="fc-${code}"><circle cx="18" cy="14" r="11"/></clipPath>
+          <filter id="sh-${code}" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.4"/>
+          </filter>
+        </defs>
+        <!-- Pin body -->
+        <path d="M18 2 C9 2 2 9 2 18 C2 28 18 44 18 44 C18 44 34 28 34 18 C34 9 27 2 18 2 Z"
+          fill="${color}" filter="url(#sh-${code})"/>
+        <!-- White circle -->
+        <circle cx="18" cy="14" r="12" fill="white" opacity="0.95"/>
+        <!-- Flag -->
+        <image href="https://flagcdn.com/w40/${m.iso}.png"
+          x="7" y="8" width="22" height="12"
+          clip-path="url(#fc-${code})" preserveAspectRatio="xMidYMid slice"/>
+        <!-- Gold ring if complete -->
+        ${isComplete ? `<circle cx="18" cy="14" r="12" fill="none" stroke="#FFD700" stroke-width="2"/>` : ''}
+      </svg>`;
+
+    const icon = L.divIcon({
+      html: pinSvg,
+      className: '',
+      iconSize: [36, 46],
+      iconAnchor: [18, 44],
+      popupAnchor: [0, -46],
+    });
+
+    const marker = L.marker([m.lat, m.lng], { icon })
+      .addTo(_leafletMap);
+
+    // Popup con info del país
+    const popupHTML = `
+      <div style="font-family:'Barlow Condensed',sans-serif;min-width:160px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <img src="https://flagcdn.com/w40/${m.iso}.png" style="width:32px;height:22px;object-fit:cover;border-radius:3px;">
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1px;">${country.name.toUpperCase()}</div>
+            <div style="font-size:10px;color:#888;">Grupo ${country.group} · ${country.conf}</div>
+          </div>
+        </div>
+        <div style="height:4px;background:#eee;border-radius:2px;margin-bottom:6px;">
+          <div style="height:100%;width:${pct}%;background:${pct===100?'#00A650':pct>50?'#EF9F27':'#5BA4F5'};border-radius:2px;"></div>
+        </div>
+        <div style="font-size:11px;color:#555;margin-bottom:8px;">
+          ${owned}/${total} láminas (${pct}%)
+        </div>
+        <button onclick="navigate('country','${code}');if(_leafletMap)_leafletMap.closePopup();"
+          style="width:100%;padding:6px;border-radius:6px;border:none;
+          background:linear-gradient(135deg,#E31E24,#004F9F);color:#fff;
+          font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">
+          VER ÁLBUM →
+        </button>
+      </div>`;
+
+    marker.bindPopup(popupHTML, {
+      maxWidth: 200,
+      className: 'wm-popup',
+    });
+
+    _leafletMarkers.push(marker);
+  });
 }
 
 let mapFilter = 'group';
@@ -147,7 +279,7 @@ window.setMapFilter = function(f) {
   document.querySelectorAll('.wm-filter').forEach(b => b.classList.remove('active'));
   document.getElementById(`wf-${f}`)?.classList.add('active');
   buildLegend(f);
-  buildSVGMap(f);
+  buildLeafletMarkers(f);
   buildCountryGrid(f);
 };
 
@@ -485,4 +617,52 @@ function buildCountryGrid(filter) {
 .wm-pill-pct{font-size:9px;font-family:'JetBrains Mono',monospace;margin-left:2px;}
   `;
   document.head.appendChild(style);
+})();
+
+// Re-renderizar mapa Leaflet cuando cambia el tema
+window.addEventListener('themechange', () => {
+  if (_leafletMap) initLeafletMap(mapFilter);
+});
+
+// Estilos popup Leaflet
+(function injectLeafletPopupStyles() {
+  if (document.getElementById('wm-popup-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'wm-popup-styles';
+  s.textContent = `
+    .wm-popup .leaflet-popup-content-wrapper {
+      border-radius: 12px !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35) !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+    .wm-popup .leaflet-popup-content {
+      margin: 12px !important;
+    }
+    .wm-popup .leaflet-popup-tip-container {
+      display: none;
+    }
+    .leaflet-control-zoom {
+      border: 1px solid rgba(255,255,255,0.1) !important;
+      border-radius: 8px !important;
+      overflow: hidden;
+    }
+    .leaflet-control-zoom a {
+      background: var(--surface, #0C1019) !important;
+      color: var(--text, #F0F4FF) !important;
+      border-color: rgba(255,255,255,0.08) !important;
+    }
+    .leaflet-control-zoom a:hover {
+      background: var(--surface2, #111827) !important;
+    }
+    .leaflet-control-attribution {
+      background: rgba(7,10,16,0.7) !important;
+      color: rgba(240,244,255,0.4) !important;
+      font-size: 9px !important;
+    }
+    .leaflet-control-attribution a {
+      color: rgba(240,244,255,0.5) !important;
+    }
+  `;
+  document.head.appendChild(s);
 })();
