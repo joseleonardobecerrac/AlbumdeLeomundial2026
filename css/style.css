@@ -1381,3 +1381,135 @@ html,body,#sidebar,#topbar,#main,
 .wm-popup .leaflet-popup-tip-container{display:none !important;}
 
 :root.light .wm-map-container{border-color:var(--border2);}
+
+/* ══════════════════════════════════════
+   SIDEBAR LIMPIO — solo grupos y países
+══════════════════════════════════════ */
+
+/* Ocultar todos los sb-item del menú superior — solo quedan los de países */
+#nav-home,#nav-pack,#nav-game,#nav-exchange,#nav-lineup,
+#nav-trivia,#nav-predictor,#nav-compare,#nav-worldmap,
+#nav-ranking,#nav-limited,#nav-favorite,#nav-chatbot,
+#nav-stadiums,#nav-bracket,#nav-standings {
+  display: none !important;
+}
+
+/* Ocultar secciones del sidebar que no sean Grupos/Países */
+.sb-scroll > .sb-section:not([data-keep]) {
+  /* Solo se ocultan las secciones sin data-keep via JS */
+}
+
+/* El sidebar ahora va directo a grupos y países */
+.sb-brand { padding-bottom: 10px; }
+
+/* ══════════════════════════════════════
+   HOME — categorías y grid mejorado
+══════════════════════════════════════ */
+.home-section-label {
+  font-family: var(--fd);
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin: 24px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-grid-4 {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.home-grid-3 {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+/* Cards con hover más pronunciado */
+.home-card {
+  position: relative;
+  transition: all 0.18s;
+}
+.home-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  opacity: 0;
+  transition: opacity 0.18s;
+  background: linear-gradient(135deg,
+    rgba(239,159,39,0.04),
+    rgba(0,79,159,0.04));
+}
+.home-card:hover::after { opacity: 1; }
+.home-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+/* ══════════════════════════════════════
+   BACK BUTTON — breadcrumb
+══════════════════════════════════════ */
+.back-crumb-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--fm);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color .15s;
+  letter-spacing: .5px;
+}
+.back-crumb-btn:hover { color: var(--gold); }
+
+/* Back button flotante en páginas internas */
+.page-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-family: var(--fb);
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+  margin-bottom: 20px;
+}
+.page-back-btn:hover {
+  border-color: var(--border2);
+  color: var(--text);
+}
+
+/* ══════════════════════════════════════
+   COMPARADOR — jugadores locked/owned
+══════════════════════════════════════ */
+.cmp-btn-locked {
+  opacity: 0.5;
+}
+.cmp-btn-locked:hover {
+  border-color: var(--border) !important;
+  background: transparent !important;
+  transform: none !important;
+}
+.cmp-player-btn {
+  position: relative;
+  transition: all .12s;
+}
+.cmp-player-btn:not(.not-owned):not(.cmp-btn-locked):hover {
+  border-color: var(--gold);
+  background: var(--gold-dim);
+  transform: translateY(-1px);
+}
+
+/* Light mode para back btn */
+:root.light .back-crumb-btn { color: rgba(13,17,23,0.5); }
+:root.light .back-crumb-btn:hover { color: var(--gold); }
+:root.light .page-back-btn {
+  background: var(--surface);
+  border-color: var(--border2);
+}

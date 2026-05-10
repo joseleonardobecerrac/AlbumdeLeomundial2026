@@ -545,8 +545,23 @@ function showApp() {
   if(authEl) authEl.style.display = 'none';
   if(appEl) appEl.classList.remove('hidden');
 
+  // Ocultar secciones del sidebar que no son grupos/países
+  cleanSidebar();
   buildSidebar();
   navigate('home');
+}
+
+function cleanSidebar() {
+  // Ocultar todas las secciones superiores del sidebar (Álbum, Más, etc.)
+  // Solo mantener la sección de Grupos y Países que construye buildSidebar()
+  const scroll = document.querySelector('.sb-scroll');
+  if (!scroll) return;
+  // Ocultar los sb-section fijos que no son de países
+  scroll.querySelectorAll('.sb-section').forEach(s => {
+    if (s.textContent.trim() === 'Álbum' || s.textContent.trim() === 'Más') {
+      s.style.display = 'none';
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -585,10 +600,12 @@ window.navigate = function(view, code) {
   else if(view==='favorite') renderFavorite(page);
   else if(view==='chatbot') renderChatbot(page);
 
-  const labels = {home:'Inicio',pack:'Abrir Sobre',bracket:'Llaves del Torneo',stadiums:'Estadios',standings:'Posiciones por Grupo',game:'¿Quién soy?',exchange:'Intercambios',lineup:'Mi 11 Ideal',trivia:'Trivia Mundialista',predictor:'Predictor IA',compare:'Comparador de Jugadores',ranking:'Ranking Global',limited:'Edición Limitada',favorite:'Mi Selección',chatbot:'Oráculo del Fútbol'};
+  const labels = {home:'Inicio',pack:'Abrir Sobre',bracket:'Llaves del Torneo',stadiums:'Estadios',standings:'Posiciones por Grupo',game:'¿Quién soy?',exchange:'Intercambios',lineup:'Mi 11 Ideal',trivia:'Trivia Mundialista',predictor:'Predictor IA',compare:'Comparador de Jugadores',ranking:'Ranking Global',limited:'Edición Limitada',favorite:'Mi Selección',chatbot:'Oráculo del Fútbol',worldmap:'Mapa Mundial'};
   const crumb = view==='country'
-    ? `Álbum · <span>${COUNTRIES.find(c=>c.code===code)?.name||code}</span>`
-    : `Álbum · <span>${labels[view]||view}</span>`;
+    ? `<button class="back-crumb-btn" onclick="navigate('home')">← Inicio</button> · <span>${COUNTRIES.find(c=>c.code===code)?.name||code}</span>`
+    : view==='home'
+      ? `Álbum · <span>Inicio</span>`
+      : `<button class="back-crumb-btn" onclick="navigate('home')">← Inicio</button> · <span>${labels[view]||view}</span>`;
   document.getElementById('breadcrumb').innerHTML = crumb;
   updateProgress();
 };
@@ -606,9 +623,17 @@ function buildSidebar() {
     sec.className = 'sb-section'; sec.textContent = `Grupo ${g}`;
     container.appendChild(sec);
     gcs.forEach(c => {
+      const owned = c.players.filter(p=>state.collected.has(p.id)).length;
+      const pct   = Math.round(owned/c.players.length*100);
       const el = document.createElement('div');
       el.className = 'sb-item'; el.id = `nav-${c.code}`;
-      el.innerHTML = `<span class="sb-flag">${flagImgSized(c.flag,18,13)}</span> ${c.name} <span class="sb-badge">${g}</span>`;
+      el.innerHTML = `<span class="sb-flag">${flagImgSized(c.flag,18,13)}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name}</span>
+        ${pct===100
+          ? `<span class="sb-badge" style="color:var(--green);background:rgba(0,166,80,0.12);">✓</span>`
+          : pct>0
+            ? `<span class="sb-badge">${pct}%</span>`
+            : `<span class="sb-badge">${g}</span>`}`;
       el.onclick = () => navigate('country', c.code);
       container.appendChild(el);
     });
@@ -631,10 +656,13 @@ function updateProgress() {
 // ═══════════════════════════════════════════════════════════
 function renderHome(page) {
   const total = COUNTRIES.reduce((a,c)=>a+c.players.length,0) + STADIUMS.length;
-  const col = state.collected.size + state.stadiumsCollected.size;
-  const icons = COUNTRIES.filter(c=>c.players.some(p=>p.rarity==='icon' && state.collected.has(p.id)));
+  const col   = state.collected.size + state.stadiumsCollected.size;
+  const pct   = total > 0 ? Math.round((col/total)*100) : 0;
+  const dups  = Object.values(state.duplicates).reduce((a,b)=>a+b,0);
 
   page.innerHTML = `<div class="page-enter">
+
+    <!-- ── HERO ── -->
     <div class="home-hero">
       <div class="home-hero-bg"></div>
       <div class="home-hero-stripes"></div>
@@ -645,16 +673,49 @@ function renderHome(page) {
         <div class="home-stat"><div class="n">${total}</div><div class="l">TOTAL</div></div>
         <div class="home-stat"><div class="n">${state.collected.size}</div><div class="l">JUGADORES</div></div>
         <div class="home-stat"><div class="n">${state.stadiumsCollected.size}</div><div class="l">ESTADIOS</div></div>
-        <div class="home-stat"><div class="n green">${Math.round((col/total)*100)}%</div><div class="l">COMPLETADO</div></div>
+        <div class="home-stat"><div class="n green">${pct}%</div><div class="l">COMPLETADO</div></div>
       </div>
+      <!-- Acciones principales -->
       <div class="home-actions">
         <button class="home-cta primary" onclick="navigate('pack')">📦 Abrir sobre diario</button>
-        <button class="home-cta secondary" onclick="navigate('game')">🎮 ¿Quién soy?</button>
-        <button class="home-cta secondary" onclick="navigate('standings')">📊 Posiciones</button>
+        <button class="home-cta secondary" onclick="navigate('standings')">📊 Grupos</button>
+        <button class="home-cta secondary" onclick="navigate('bracket')">🏆 Llaves</button>
+        <button class="home-cta secondary" onclick="navigate('worldmap')">🗺️ Mapa</button>
       </div>
     </div>
 
-    <div class="home-grid">
+    <!-- ── CATEGORÍA: MI ÁLBUM ── -->
+    <div class="home-section-label">📒 Mi álbum</div>
+    <div class="home-grid home-grid-4">
+      <div class="home-card" onclick="navigate('pack')">
+        <div class="home-card-icon">📦</div>
+        <div class="home-card-title">ABRIR SOBRE</div>
+        <div class="home-card-desc">Abre tu sobre diario y obtén hasta 5 láminas nuevas.</div>
+        <div class="home-card-stat" style="color:var(--gold)">${getPacksRemaining()} sobres restantes hoy</div>
+      </div>
+      <div class="home-card" onclick="navigate('exchange')">
+        <div class="home-card-icon">🔄</div>
+        <div class="home-card-title">INTERCAMBIOS</div>
+        <div class="home-card-desc">Intercambia duplicados con otros coleccionistas vía link.</div>
+        <div class="home-card-stat">${dups} duplicados disponibles</div>
+      </div>
+      <div class="home-card" onclick="navigate('limited')">
+        <div class="home-card-icon">💎</div>
+        <div class="home-card-title">EDICIÓN LIMITADA</div>
+        <div class="home-card-desc">Láminas exclusivas y misiones especiales de tu selección favorita.</div>
+        <div class="home-card-stat" style="color:var(--icon-c)">Colección premium</div>
+      </div>
+      <div class="home-card" onclick="navigate('favorite')">
+        <div class="home-card-icon">❤️</div>
+        <div class="home-card-title">MI SELECCIÓN</div>
+        <div class="home-card-desc">Tu selección favorita, misiones y láminas especiales.</div>
+        <div class="home-card-stat">${state.favTeam ? COUNTRIES.find(c=>c.code===state.favTeam)?.name||'—' : 'Elige tu favorita'}</div>
+      </div>
+    </div>
+
+    <!-- ── CATEGORÍA: TORNEO ── -->
+    <div class="home-section-label">🏆 Torneo</div>
+    <div class="home-grid home-grid-4">
       <div class="home-card" onclick="navigate('standings')">
         <div class="home-card-icon">📊</div>
         <div class="home-card-title">GRUPOS</div>
@@ -667,11 +728,11 @@ function renderHome(page) {
         <div class="home-card-desc">Octavos, cuartos, semis y la gran final. Completa el camino al título.</div>
         <div class="home-card-stat">32 partidos en el torneo</div>
       </div>
-      <div class="home-card" onclick="navigate('exchange')">
-        <div class="home-card-icon">🔄</div>
-        <div class="home-card-title">INTERCAMBIOS</div>
-        <div class="home-card-desc">Tus duplicados se pueden intercambiar con otros coleccionistas vía link.</div>
-        <div class="home-card-stat">${Object.values(state.duplicates).reduce((a,b)=>a+b,0)} láminas disponibles</div>
+      <div class="home-card" onclick="navigate('worldmap')">
+        <div class="home-card-icon">🗺️</div>
+        <div class="home-card-title">MAPA MUNDIAL</div>
+        <div class="home-card-desc">48 selecciones en el mapa. Haz clic en un país para ver su álbum.</div>
+        <div class="home-card-stat">3 países anfitriones</div>
       </div>
       <div class="home-card" onclick="navigate('stadiums')">
         <div class="home-card-icon">🏟️</div>
@@ -680,6 +741,59 @@ function renderHome(page) {
         <div class="home-card-stat">${state.stadiumsCollected.size}/16 coleccionados</div>
       </div>
     </div>
+
+    <!-- ── CATEGORÍA: JUGAR ── -->
+    <div class="home-section-label">🎮 Jugar</div>
+    <div class="home-grid home-grid-4">
+      <div class="home-card" onclick="navigate('game')">
+        <div class="home-card-icon">🎮</div>
+        <div class="home-card-title">¿QUIÉN SOY?</div>
+        <div class="home-card-desc">Adivina el jugador por sus pistas y gana láminas exclusivas.</div>
+        <div class="home-card-stat" style="color:var(--gold)">Racha: ${state.gameStreak} · Récord: ${state.gameBest}</div>
+      </div>
+      <div class="home-card" onclick="navigate('trivia')">
+        <div class="home-card-icon">🧠</div>
+        <div class="home-card-title">TRIVIA MUNDIALISTA</div>
+        <div class="home-card-desc">97 preguntas de historia, jugadores, estadios y más. Compite en el ranking.</div>
+        <div class="home-card-stat">Ranking global activo</div>
+      </div>
+      <div class="home-card" onclick="navigate('lineup')">
+        <div class="home-card-icon">⚽</div>
+        <div class="home-card-title">MI 11 IDEAL</div>
+        <div class="home-card-desc">Arma tu equipo soñado con los jugadores de tu colección.</div>
+        <div class="home-card-stat">6 formaciones disponibles</div>
+      </div>
+      <div class="home-card" onclick="navigate('ranking')">
+        <div class="home-card-icon">🏅</div>
+        <div class="home-card-title">RANKING GLOBAL</div>
+        <div class="home-card-desc">Compite con coleccionistas de todo el mundo por el álbum más completo.</div>
+        <div class="home-card-stat">Clasificación en tiempo real</div>
+      </div>
+    </div>
+
+    <!-- ── CATEGORÍA: ANÁLISIS IA ── -->
+    <div class="home-section-label">🤖 Análisis con IA</div>
+    <div class="home-grid home-grid-3">
+      <div class="home-card" onclick="navigate('predictor')">
+        <div class="home-card-icon">🤖</div>
+        <div class="home-card-title">PREDICTOR IA</div>
+        <div class="home-card-desc">Claude analiza partidos, grupos y predice el campeón del Mundial 2026.</div>
+        <div class="home-card-stat" style="color:var(--rare-c)">Powered by Claude AI</div>
+      </div>
+      <div class="home-card" onclick="navigate('compare')">
+        <div class="home-card-icon">⚖️</div>
+        <div class="home-card-title">COMPARADOR</div>
+        <div class="home-card-desc">Estadísticas cara a cara de cualquier par de jugadores.</div>
+        <div class="home-card-stat">${state.collected.size} jugadores en tu álbum</div>
+      </div>
+      <div class="home-card" onclick="navigate('chatbot')">
+        <div class="home-card-icon">💬</div>
+        <div class="home-card-title">ORÁCULO DEL FÚTBOL</div>
+        <div class="home-card-desc">Pregunta cualquier cosa sobre el Mundial 2026. La IA lo sabe todo.</div>
+        <div class="home-card-stat" style="color:var(--rare-c)">Chat con Claude AI</div>
+      </div>
+    </div>
+
   </div>`;
 }
 
@@ -731,6 +845,7 @@ function renderPack(page) {
       </div>`;
 
   page.innerHTML = `<div id="pack-scene" class="page-enter">
+    <button class="page-back-btn" onclick="navigate('home')" style="align-self:flex-start;">← Inicio</button>
     <div class="pack-header">
       <h2>SOBRE DEL DÍA</h2>
       <div class="pack-date">${new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'}).toUpperCase()}</div>

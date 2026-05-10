@@ -1,3 +1,7 @@
+
+/* Jugadores no poseídos en comparador */
+.cmp-btn-locked { opacity: 0.55; }
+.cmp-btn-locked:hover { border-color: var(--border2) !important; background: transparent !important; cursor: default; }
 // ═══ CMP STATS + ALL RENDER FUNCTIONS ═══
 const CMP_STATS = [
   {key:'overall',   label:'VALORACIÓN GENERAL', icon:'⭐'},
@@ -192,6 +196,7 @@ function injectCmpAIStyles() {
 function renderComparator(page) {
   injectCmpAIStyles();
   page.innerHTML = `<div class="cmp-wrap page-enter">
+    <button class="page-back-btn" onclick="navigate('home')">← Inicio</button>
     <div class="cmp-hero">
       <h2>⚖️ COMPARADOR</h2>
       <p>Selecciona dos jugadores de tu álbum y analiza sus estadísticas cara a cara</p>
@@ -349,16 +354,33 @@ window.cmpFilterSearch = function(q) {
   }
 
   grid.innerHTML = allPlayers.map(p => {
+    const owned = state.collected.has(p.id);
     const alreadyChosen = (cmpState.selecting==='A' && cmpState.playerB?.id===p.id) ||
                           (cmpState.selecting==='B' && cmpState.playerA?.id===p.id);
-    return `<button class="cmp-player-btn${alreadyChosen?' not-owned':''}"
-      ${alreadyChosen ? 'disabled aria-disabled="true"' : `onclick="pickCmpPlayer('${p.id}')"`}>
-      <span class="pe">${p.e}</span>
+    const disabled = alreadyChosen;
+    const flagHtml = `<img src="https://flagcdn.com/w20/${p.flag}.png" style="width:14px;height:10px;object-fit:cover;border-radius:1px;flex-shrink:0;" onerror="this.style.display='none'">`;
+    const photoHtml = owned && typeof getPlayerPhoto==='function' && getPlayerPhoto(p.id)
+      ? `<img src="${getPlayerPhoto(p.id)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;object-position:top;flex-shrink:0;" onerror="this.outerHTML='<span style=\"font-size:18px\">${p.e}</span>'">`
+      : `<span class="pe" style="opacity:${owned?1:0.35}">${owned ? p.e : '?'}</span>`;
+    return `<button class="cmp-player-btn${disabled?' not-owned':''}${owned?'':' cmp-btn-locked'}"
+      ${disabled ? 'disabled aria-disabled="true"' : `onclick="pickCmpPlayer('${p.id}')"`}
+      title="${owned ? p.name : 'Aún no tienes esta lámina'}">
+      ${photoHtml}
       <div class="pi">
-        <div class="pn">${p.name}</div>
-        <div class="pm">${p.club} · ${p.countryName}</div>
+        <div class="pn" style="${owned?'':'color:var(--muted)'}">
+          ${owned ? p.name : p.name}
+        </div>
+        <div class="pm" style="display:flex;align-items:center;gap:4px;">
+          ${flagHtml}
+          <span>${owned ? p.club : p.countryName}</span>
+        </div>
       </div>
-      <span class="pr" style="background:${rarityColors[p.rarity]};color:${rarityText[p.rarity]}">${p.rarity.slice(0,3).toUpperCase()}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
+        <span class="pr" style="background:${rarityColors[p.rarity]};color:${rarityText[p.rarity]}">${p.rarity.slice(0,3).toUpperCase()}</span>
+        ${owned
+          ? `<span style="font-size:7px;color:var(--green);font-family:var(--fm);">✓ TENGO</span>`
+          : `<span style="font-size:7px;color:var(--muted);font-family:var(--fm);">🔒 FALTA</span>`}
+      </div>
     </button>`;
   }).join('');
 };

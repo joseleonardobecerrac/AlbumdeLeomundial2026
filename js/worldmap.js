@@ -236,36 +236,67 @@ function buildLeafletMarkers(filter) {
       popupAnchor: [0, -46],
     });
 
-    const marker = L.marker([m.lat, m.lng], { icon })
+    const marker = L.marker([m.lat, m.lng], { icon, title: country.name })
       .addTo(_leafletMap);
+    // Doble clic navega directo
+    marker.on('dblclick', () => {
+      navigate('country', code);
+      _leafletMap?.closePopup();
+    });
 
     // Popup con info del país
+    const isDark = !document.documentElement.classList.contains('light');
+    const textColor = isDark ? '#F0F4FF' : '#0D1117';
+    const subColor  = isDark ? 'rgba(240,244,255,0.5)' : 'rgba(13,17,23,0.5)';
+    const bgColor   = isDark ? '#0C1019' : '#ffffff';
+    const borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+    const barBg     = isDark ? 'rgba(255,255,255,0.08)' : '#eee';
+
     const popupHTML = `
-      <div style="font-family:'Barlow Condensed',sans-serif;min-width:160px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <img src="https://flagcdn.com/w40/${m.iso}.png" style="width:32px;height:22px;object-fit:cover;border-radius:3px;">
+      <div style="font-family:'Barlow Condensed',sans-serif;min-width:180px;background:${bgColor};color:${textColor};">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <img src="https://flagcdn.com/w40/${m.iso}.png" style="width:36px;height:25px;object-fit:cover;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">
           <div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1px;">${country.name.toUpperCase()}</div>
-            <div style="font-size:10px;color:#888;">Grupo ${country.group} · ${country.conf}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;line-height:1;">${country.name.toUpperCase()}</div>
+            <div style="font-size:10px;color:${subColor};">Grupo ${country.group} · ${country.conf}</div>
           </div>
         </div>
-        <div style="height:4px;background:#eee;border-radius:2px;margin-bottom:6px;">
-          <div style="height:100%;width:${pct}%;background:${pct===100?'#00A650':pct>50?'#EF9F27':'#5BA4F5'};border-radius:2px;"></div>
+        <div style="height:5px;background:${barBg};border-radius:3px;margin-bottom:5px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${pct===100?'#00A650':pct>50?'#EF9F27':'#5BA4F5'};border-radius:3px;transition:width .5s;"></div>
         </div>
-        <div style="font-size:11px;color:#555;margin-bottom:8px;">
-          ${owned}/${total} láminas (${pct}%)
+        <div style="font-size:11px;color:${subColor};margin-bottom:10px;">
+          ${owned}/${total} láminas · ${pct}%
         </div>
-        <button onclick="navigate('country','${code}');if(_leafletMap)_leafletMap.closePopup();"
-          style="width:100%;padding:6px;border-radius:6px;border:none;
+        <div data-nav-code="${code}"
+          style="width:100%;padding:8px;border-radius:7px;border:none;
           background:linear-gradient(135deg,#E31E24,#004F9F);color:#fff;
-          font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">
+          font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;
+          cursor:pointer;text-align:center;user-select:none;"
+          onmousedown="window._wmNavCode='${code}'"
+          ontouchstart="window._wmNavCode='${code}'">
           VER ÁLBUM →
-        </button>
+        </div>
       </div>`;
 
-    marker.bindPopup(popupHTML, {
-      maxWidth: 200,
-      className: 'wm-popup',
+    const popup = L.popup({ maxWidth: 220, className: 'wm-popup' }).setContent(popupHTML);
+    marker.bindPopup(popup);
+
+    // Navegar al hacer clic en el pin directamente (más confiable que el botón del popup)
+    marker.on('click', () => {
+      // Pequeño delay para que el popup se muestre
+      setTimeout(() => {
+        const btn = document.querySelector(`[data-nav-code="${code}"]`);
+        if (btn) {
+          btn.addEventListener('mouseup', () => {
+            navigate('country', code);
+            _leafletMap?.closePopup();
+          }, { once: true });
+          btn.addEventListener('touchend', () => {
+            navigate('country', code);
+            _leafletMap?.closePopup();
+          }, { once: true });
+        }
+      }, 100);
     });
 
     _leafletMarkers.push(marker);

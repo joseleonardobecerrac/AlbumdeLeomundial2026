@@ -1,5 +1,6 @@
 function renderPredictor(page) {
   page.innerHTML = `<div class="predictor-wrap page-enter">
+    <button class="page-back-btn" onclick="navigate('home')">← Inicio</button>
     <div class="predictor-hero">
       <h2>🤖 PREDICTOR IA</h2>
       <p>Análisis inteligente powered by Claude · Estadísticas reales · Simulación táctica</p>
@@ -296,93 +297,107 @@ Responde EXACTAMENTE en este JSON (sin markdown, sin texto extra):
 
 // ── CALL CLAUDE API ───────────────────────────────────────
 async function callClaude(prompt) {
-  // ── ESTRATEGIA DE CONEXIÓN (en orden de prioridad) ────────
-  // 1. Cloud Function proxy (producción segura)
-  // 2. Llamada directa con API key (desarrollo/fallback)
-
+  // ── ESTRATEGIA: Cloud Function → fallback directo con API key ──
   const base = (typeof CLOUD_FUNCTION_BASE !== 'undefined' && CLOUD_FUNCTION_BASE)
-    ? CLOUD_FUNCTION_BASE.replace(/\/$/, '')   // quitar trailing slash
+    ? CLOUD_FUNCTION_BASE.replace(/\/$/, '')
     : '';
 
-  let response;
-
+  // Intentar Cloud Function si está configurada
   if (base) {
-    // ── Modo producción: Cloud Function proxy ──────────────
-    const token = typeof getFirebaseIdToken === 'function'
-      ? await getFirebaseIdToken().catch(() => null)
-      : null;
+    try {
+      const token = typeof getFirebaseIdToken === 'function'
+        ? await getFirebaseIdToken().catch(() => null)
+        : null;
 
-    // Intentar primero con /claudeProxy, luego con /claudeProxy/
-    const url = `${base}/claudeProxy`;
+      const response = await fetch(`${base}/claudeProxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          mode: predState?.mode || 'match',
+          prompt,
+        }),
+      });
 
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        mode: predState?.mode || 'match',
-        prompt,
-      }),
-    });
-
-    // Si CORS falla, caer a modo directo con key de window
-    if (!response.ok && response.status === 0) {
-      console.warn('[Predictor] CORS en Cloud Function, intentando modo directo...');
-      return callClaudeDirect(prompt);
+      if (response.ok) {
+        const data = await response.json();
+        const raw = data.content?.find(b => b.type === 'text')?.text || '';
+        return JSON.parse(raw.replace(/```json|```/g, '').trim());
+      }
+      // Si la CF respondió pero con error, caer a modo directo
+      console.warn('[Predictor] Cloud Function error', response.status, '— intentando directo');
+    } catch(cfErr) {
+      console.warn('[Predictor] Cloud Function no disponible:', cfErr.message, '— intentando directo');
     }
-  } else {
-    return callClaudeDirect(prompt);
   }
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || 'API error ' + response.status);
-  }
-
-  const data = await response.json();
-  const raw = data.content?.find(b => b.type === 'text')?.text || '';
-  const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  // ── Fallback: llamada directa con API key ──────────────
+  return callClaudeDirect(prompt);
 }
 
-// ── Llamada directa a Anthropic (requiere window.ANTHROPIC_API_KEY) ──
+// ── Llamada directa a Anthropic ─────────────────────────────
+// Usa el header requerido para llamadas desde el navegador.
+// API key: configura window.ANTHROPIC_API_KEY en index.html o en la consola.
 async function callClaudeDirect(prompt) {
   const apiKey = window.ANTHROPIC_API_KEY || '';
+
   if (!apiKey) {
     throw new Error(
-      'Sin API key configurada.\n\n' +
-      'Opciones:\n' +
-      '1. Despliega la Cloud Function y configura CLOUD_FUNCTION_BASE\n' +
-      '2. Para desarrollo: window.ANTHROPIC_API_KEY = "sk-ant-..."'
+      'Configura tu API key de Anthropic.\n\n' +
+      'Abre la consola del navegador y escribe:\n' +
+      'window.ANTHROPIC_API_KEY = "sk-ant-...tu-key..."\n\n' +
+      'O edita index.html y agrega:\n' +
+      'window.ANTHROPIC_API_KEY = "sk-ant-...";'
     );
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  let response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+  } catch(fetchErr) {
+    throw new Error(
+      'No se pudo conectar con la IA.\n' +
+      'Verifica tu conexión a internet.\n' +
+      'Detalle: ' + fetchErr.message
+    );
+  }
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'API error ' + response.status);
+    const msg = err.error?.message || `HTTP ${response.status}`;
+    if (response.status === 401) throw new Error('API key inválida. Verifica tu clave de Anthropic.');
+    if (response.status === 429) throw new Error('Límite de uso alcanzado. Intenta en unos minutos.');
+    throw new Error('Error de la IA: ' + msg);
   }
 
   const data = await response.json();
   const raw = data.content?.find(b => b.type === 'text')?.text || '';
+  if (!raw) throw new Error('La IA no devolvió respuesta. Intenta de nuevo.');
+
   const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  try {
+    return JSON.parse(clean);
+  } catch(parseErr) {
+    // Si no es JSON válido, intentar extraer JSON del texto
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    throw new Error('Respuesta inesperada de la IA. Intenta de nuevo.');
+  }
 }
 
 // ── LOADING ANIMATION ─────────────────────────────────────
@@ -450,17 +465,27 @@ window.runPredictor = async function() {
     hidePredLoading();
     console.error(err);
     document.getElementById('pred-result-wrap').innerHTML = `
-      <div style="background:rgba(227,30,36,0.08);border:1px solid rgba(227,30,36,0.2);
-        border-radius:12px;padding:20px;text-align:center;color:var(--red);font-family:var(--fb);">
-        <div style="font-size:24px;margin-bottom:8px;">⚠️</div>
-        <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Error al conectar con la IA</div>
-        <div style="font-size:12px;color:var(--muted);font-family:var(--fs);">
-          Verifica que Firebase esté configurado y la API key de Anthropic sea válida.
-          <br>Error: ${err.message}
+      <div style="background:var(--surface2);border:1px solid rgba(227,30,36,0.2);
+        border-radius:12px;padding:24px;text-align:center;font-family:var(--fb);">
+        <div style="font-size:32px;margin-bottom:10px;">${err.message.includes('Configura')||err.message.includes('API key')?'🔑':'⚠️'}</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--red);">
+          ${err.message.includes('Configura')||err.message.includes('API key')?'API Key requerida':'Error al conectar con la IA'}
         </div>
-        <button onclick="runPredictor()" style="margin-top:14px;padding:8px 20px;border-radius:7px;
-          border:1px solid var(--red);background:transparent;color:var(--red);
-          font-family:var(--fb);cursor:pointer;">Reintentar</button>
+        <div style="font-size:12px;color:var(--muted);font-family:var(--fs);line-height:1.7;margin-bottom:14px;max-width:380px;margin-left:auto;margin-right:auto;">
+          ${err.message.includes('Configura')||err.message.includes('API key')
+            ? 'Necesitas tu API key de Anthropic para usar el Predictor IA.'
+            : 'Verifica tu conexión a internet.'}
+          <br><code style="font-size:10px;font-family:var(--fm);opacity:.7;">${err.message}</code>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+          <button onclick="runPredictor()" style="padding:8px 18px;border-radius:7px;
+            border:1px solid var(--border2);background:transparent;color:var(--muted);
+            font-family:var(--fb);cursor:pointer;">🔄 Reintentar</button>
+          <button onclick="(function(){const k=prompt('Pega tu API key de Anthropic (empieza con sk-ant-):');if(k&&k.includes('sk-')){window.ANTHROPIC_API_KEY=k;toast('API key configurada ✓','success');runPredictor();}else if(k){toast('Formato inválido','error');}})()"
+            style="padding:8px 18px;border-radius:7px;
+            border:none;background:var(--gold);color:#1a0a00;
+            font-family:var(--fb);cursor:pointer;font-weight:700;">🔑 Ingresar API Key</button>
+        </div>
       </div>`;
   } finally {
     predState.loading = false;

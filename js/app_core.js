@@ -14,6 +14,7 @@ function renderExchange(page) {
   let selectedDup = null;
 
   page.innerHTML = `<div class="page-enter">
+    <button class="page-back-btn" onclick="navigate('home')">← Inicio</button>
     <div style="font-family:var(--fd);font-size:38px;letter-spacing:3px;margin-bottom:4px;">INTERCAMBIOS</div>
     <div style="font-size:12px;color:var(--muted);font-family:var(--fs);margin-bottom:24px;">Ofrece tus duplicados a otros coleccionistas generando un link de intercambio.</div>
 
@@ -94,6 +95,7 @@ function renderExchange(page) {
 // ═══════════════════════════════════════════════════════════
 function renderStadiums(page) {
   let html = `<div class="page-enter">
+    <button class="page-back-btn" onclick="navigate('home')">← Inicio</button>
     <div class="country-header" style="margin-bottom:20px;padding-bottom:20px;">
       <div class="country-flag-big">🏟️</div>
       <div class="country-title">

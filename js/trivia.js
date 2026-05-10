@@ -6,6 +6,7 @@ function renderTrivia(page) {
   if(triviaState.phase === 'results') { renderTriviaResults(page); return; }
 
   page.innerHTML = `<div class="trivia-lobby page-enter">
+    <button class="page-back-btn" onclick="navigate('home')">← Inicio</button>
     <div class="trivia-hero">
       <h2>TRIVIA<br>MUNDIALISTA</h2>
       <p>Pon a prueba tu conocimiento del fútbol mundial. Historia, jugadores, estadios y más.</p>
