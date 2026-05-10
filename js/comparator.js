@@ -1,7 +1,4 @@
 
-/* Jugadores no poseídos en comparador */
-.cmp-btn-locked { opacity: 0.55; }
-.cmp-btn-locked:hover { border-color: var(--border2) !important; background: transparent !important; cursor: default; }
 // ═══ CMP STATS + ALL RENDER FUNCTIONS ═══
 const CMP_STATS = [
   {key:'overall',   label:'VALORACIÓN GENERAL', icon:'⭐'},

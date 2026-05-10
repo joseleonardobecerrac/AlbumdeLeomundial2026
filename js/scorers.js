@@ -534,15 +534,27 @@ window.openStickerDetail = function(id, countryCode) {
     } else {
       const photo = typeof getPlayerPhoto === 'function' ? getPlayerPhoto(id) : null;
       modalImg = photo
-        ? `<div class="sdm-team-wrap"><img src="${photo}" alt="${p.name}"></div>`
+        ? `<div class="sdm-team-wrap"><img src="${photo}" alt="${p.name}" style="object-fit:cover;object-position:center top;"></div>`
         : `<div class="sdm-emoji-wrap">${p.e}</div>`;
     }
   } else {
     const photo = typeof getPlayerPhoto === 'function' ? getPlayerPhoto(id) : null;
     if (photo && has) {
-      modalImg = `<div class="sdm-player-wrap"><img src="${photo}" alt="${p.name}"></div>`;
+      // Mostrar el póster completo: object-fit cover, centrado
+      modalImg = `<div class="sdm-player-wrap">
+        <img src="${photo}" alt="${p.name}"
+          style="width:100%;height:100%;object-fit:cover;object-position:center top;"
+          onerror="this.parentElement.innerHTML='<div class=\'sdm-emoji-wrap\'>${p.e}</div>'">
+      </div>`;
+    } else if (has) {
+      modalImg = `<div class="sdm-emoji-wrap">${p.e}</div>`;
     } else {
-      modalImg = `<div class="sdm-emoji-wrap ${has ? '' : 'sdm-locked'}">${has ? p.e : '🔒'}</div>`;
+      modalImg = `<div class="sdm-emoji-wrap sdm-locked">
+        <div style="text-align:center;">
+          <div style="font-size:60px;margin-bottom:12px;">🔒</div>
+          <div style="font-size:13px;font-family:var(--fb);color:var(--muted);">Lámina no conseguida</div>
+        </div>
+      </div>`;
     }
   }
 

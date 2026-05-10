@@ -366,7 +366,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--fb);display:flex;l
 .section-label{font-size:9px;letter-spacing:3px;color:var(--muted);font-family:var(--fm);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
 .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
 
-.stickers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin-bottom:28px;}
+.stickers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-bottom:28px;}
 
 .sticker-slot{aspect-ratio:3/4;border-radius:12px;border:1.5px dashed rgba(255,255,255,0.08);background:rgba(255,255,255,0.015);position:relative;display:flex;flex-direction:column;overflow:hidden;transition:border-color 0.15s,transform 0.15s,box-shadow 0.15s;cursor:pointer;}
 .sticker-slot:hover{border-color:rgba(255,255,255,0.18);transform:translateY(-3px);}
@@ -384,15 +384,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--fb);display:flex;l
 .slot-number{position:absolute;top:10px;left:7px;font-size:8px;font-family:var(--fm);color:var(--muted2);}
 .slot-img{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;}
 .slot-img img{width:100%;height:100%;object-fit:cover;object-position:top center;}
-.slot-silhouette{flex:1;display:flex;align-items:center;justify-content:center;font-size:38px;background:rgba(255,255,255,0.02);}
+.slot-silhouette{flex:1;display:flex;align-items:center;justify-content:center;font-size:52px;background:rgba(255,255,255,0.02);}
 .slot-empty-icon{flex:1;display:flex;align-items:center;justify-content:center;opacity:0.06;}
-.slot-empty-icon svg{width:32px;height:32px;}
+.slot-empty-icon svg{width:44px;height:44px;}
 .slot-country-bar{position:absolute;bottom:52px;left:0;right:0;height:3px;}
-.slot-info{padding:5px 7px 6px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.3);}
-.slot-name{font-size:9.5px;font-weight:700;color:var(--text);line-height:1.2;letter-spacing:.2px;}
-.slot-club{font-size:8px;color:var(--muted);margin-top:1px;font-family:var(--fs);}
+.slot-info{padding:7px 9px 8px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.3);}
+.slot-name{font-size:11px;font-weight:700;color:var(--text);line-height:1.2;letter-spacing:.2px;}
+.slot-club{font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fs);}
 .slot-pos-row{display:flex;align-items:center;gap:4px;margin-top:3px;}
-.slot-pos{padding:1px 5px;border-radius:3px;font-size:7px;font-weight:700;letter-spacing:.5px;font-family:var(--fm);}
+.slot-pos{padding:2px 6px;border-radius:3px;font-size:8px;font-weight:700;letter-spacing:.5px;font-family:var(--fm);}
 .pos-POR{background:rgba(227,30,36,.18);color:#f07070;}
 .pos-DEF{background:rgba(91,164,245,.18);color:#7ab4f0;}
 .pos-MED{background:rgba(0,166,80,.18);color:#4dc98a;}
@@ -1209,12 +1209,17 @@ html,body,#sidebar,#topbar,#main,
 }
 .sdm-overlay.sdm-open{opacity:1;}
 .sdm-card{
-  width:100%;max-width:380px;
+  width:100%;max-width:420px;
+  max-height:92vh;
   background:var(--surface);border:1px solid var(--border2);
-  border-radius:20px;overflow:hidden;position:relative;
+  border-radius:20px;overflow:hidden;overflow-y:auto;
+  position:relative;
   transform:scale(.93) translateY(16px);
   transition:transform .25s cubic-bezier(.34,1.56,.64,1);
+  display:flex;flex-direction:column;
 }
+.sdm-card::-webkit-scrollbar{width:3px;}
+.sdm-card::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
 .sdm-overlay.sdm-open .sdm-card{transform:none;}
 .sdm-top-bar{height:4px;width:100%;}
 .sdm-bar-common{background:var(--common-c);}
@@ -1233,28 +1238,34 @@ html,body,#sidebar,#topbar,#main,
 
 /* Imagen de jugador */
 .sdm-player-wrap,.sdm-team-wrap,.sdm-flag-wrap{
-  width:100%;height:220px;overflow:hidden;
+  width:100%;
+  /* Proporción 3:4 de la lámina para no cortar */
+  aspect-ratio:3/4;
+  max-height:340px;
+  overflow:hidden;
   background:var(--surface2);
+  position:relative;
 }
 .sdm-player-wrap img,.sdm-team-wrap img{
-  width:100%;height:100%;object-fit:cover;object-position:top center;
+  width:100%;height:100%;
+  object-fit:cover;object-position:top center;
 }
 .sdm-flag-wrap{
   display:flex;align-items:center;justify-content:center;
-  padding:24px;
+  padding:32px;aspect-ratio:4/3;max-height:240px;
 }
 .sdm-flag-wrap img{
   max-width:100%;max-height:100%;
-  object-fit:contain;border-radius:6px;
-  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+  object-fit:contain;border-radius:8px;
+  box-shadow:0 4px 24px rgba(0,0,0,0.5);
 }
 .sdm-emoji-wrap{
-  width:100%;height:180px;
+  width:100%;aspect-ratio:3/4;max-height:280px;
   display:flex;align-items:center;justify-content:center;
-  font-size:80px;background:var(--surface2);
+  font-size:100px;background:var(--surface2);
 }
 .sdm-emoji-wrap.sdm-locked{
-  filter:grayscale(1);opacity:0.3;
+  filter:grayscale(1);opacity:0.25;
 }
 
 .sdm-body{padding:16px 20px 20px;}
@@ -1513,3 +1524,170 @@ html,body,#sidebar,#topbar,#main,
   background: var(--surface);
   border-color: var(--border2);
 }
+
+/* ══════════════════════════════════════
+   LÁMINAS — mejoras visuales v5
+══════════════════════════════════════ */
+
+/* Grid más espacioso */
+.stickers-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+  gap: 14px !important;
+}
+
+/* Slot base — border redondeado y sombra suave */
+.sticker-slot {
+  border-radius: 14px !important;
+}
+.sticker-slot:hover {
+  transform: translateY(-5px) scale(1.02) !important;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.3) !important;
+}
+
+/* Lámina con foto — barra superior de rareza más visible */
+.sticker-slot.legendary.collected {
+  box-shadow: 0 0 24px rgba(239,159,39,0.35) !important;
+}
+.sticker-slot.icon.collected {
+  box-shadow: 0 0 24px rgba(229,53,171,0.35) !important;
+}
+.sticker-slot.rare.collected {
+  box-shadow: 0 0 16px rgba(91,164,245,0.25) !important;
+}
+
+/* slot-img: ocupa todo el espacio disponible encima del info */
+.slot-img {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+.slot-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+/* Estado bloqueado — fondo con textura */
+.slot-img-locked {
+  flex: 1;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255,255,255,0.02) 0px,
+    rgba(255,255,255,0.02) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Info zona */
+.slot-info {
+  padding: 8px 10px 9px !important;
+}
+.slot-name {
+  font-size: 11px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Número de lámina */
+.slot-number {
+  font-size: 9px !important;
+  opacity: 0.6;
+}
+
+/* ── MODAL SDM — rediseño para no cortar imagen ── */
+.sdm-overlay {
+  align-items: center !important;
+  overflow-y: auto !important;
+  padding: 16px !important;
+}
+
+.sdm-card {
+  max-width: 420px !important;
+  max-height: 92vh !important;
+  overflow-y: auto !important;
+  border-radius: 20px !important;
+}
+
+/* Imagen del jugador en modal: aspect-ratio 3/4, completa */
+.sdm-player-wrap {
+  width: 100% !important;
+  aspect-ratio: 3/4 !important;
+  height: auto !important;
+  max-height: 400px !important;
+}
+.sdm-player-wrap img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: top center !important;
+}
+
+/* Plantel: landscape, más bajo */
+.sdm-team-wrap {
+  width: 100% !important;
+  aspect-ratio: 16/9 !important;
+  height: auto !important;
+  max-height: 220px !important;
+}
+.sdm-team-wrap img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+}
+
+/* Bandera */
+.sdm-flag-wrap {
+  width: 100% !important;
+  aspect-ratio: 5/3 !important;
+  height: auto !important;
+  max-height: 200px !important;
+  padding: 28px !important;
+}
+.sdm-flag-wrap img {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+}
+
+/* Locked en modal */
+.sdm-emoji-wrap {
+  aspect-ratio: 3/4 !important;
+  height: auto !important;
+  max-height: 320px !important;
+  min-height: 160px !important;
+  font-size: 80px !important;
+}
+.sdm-emoji-wrap.sdm-locked {
+  font-size: 60px !important;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255,255,255,0.02) 0px,
+    rgba(255,255,255,0.02) 2px,
+    transparent 2px,
+    transparent 10px
+  ) !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+/* Nombre más grande en el modal */
+.sdm-name {
+  font-size: 26px !important;
+}
+
+/* Light mode SDM */
+:root.light .sdm-card { background: var(--surface) !important; }
+:root.light .sdm-player-wrap,
+:root.light .sdm-team-wrap,
+:root.light .sdm-flag-wrap,
+:root.light .sdm-emoji-wrap { background: var(--surface2) !important; }

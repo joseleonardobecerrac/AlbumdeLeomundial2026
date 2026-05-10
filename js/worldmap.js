@@ -303,7 +303,7 @@ function buildLeafletMarkers(filter) {
   });
 }
 
-let mapFilter = 'group';
+mapFilter = 'group'; // reset on re-render
 
 window.setMapFilter = function(f) {
   mapFilter = f;
